@@ -1,6 +1,6 @@
 // TAPAK Service Worker - SMP Negeri 1 Pagaden
 // Versi Cache-First penuh untuk mode luring total sejak instalasi pertama
-const CACHE_NAME = 'tapak-pwa-v2.6.0';
+const CACHE_NAME = 'tapak-pwa-v2.6.1';
 const CORE_PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -47,22 +47,42 @@ self.addEventListener('install', (event) => {
   );
 });
 
+const CURRENT_APP_VERSION = 'v2.6.1';
+const CURRENT_BUILD_NUMBER = 'Build 20261024.1';
+
+// Mengirimkan notifikasi ke aplikasi client saat skipWaiting() dan pembersihan cache berhasil
+const notifyClientsUpdateSuccess = async () => {
+  try {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      client.postMessage({
+        type: 'SW_UPDATE_SUCCESS',
+        version: CURRENT_APP_VERSION,
+        build: CURRENT_BUILD_NUMBER,
+        message: 'Aplikasi telah berhasil diperbarui ke versi terbaru!'
+      });
+    }
+  } catch {
+    // Abaikan galat broadcast
+  }
+};
+
 // Listener pesan untuk aktivasi hening seketika (silent update) dengan pembersihan cache usang tuntas
 self.addEventListener('message', (event) => {
   if (event.data && (event.data.type === 'SKIP_WAITING' || event.data === 'skipWaiting')) {
     event.waitUntil(
-      cleanupStaleCaches().then(() => {
-        self.skipWaiting();
-      })
+      cleanupStaleCaches()
+        .then(() => self.skipWaiting())
+        .then(() => notifyClientsUpdateSuccess())
     );
   }
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    cleanupStaleCaches().then(() => {
-      return self.clients.claim();
-    })
+    cleanupStaleCaches()
+      .then(() => self.clients.claim())
+      .then(() => notifyClientsUpdateSuccess())
   );
 });
 

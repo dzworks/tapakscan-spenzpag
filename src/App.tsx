@@ -295,7 +295,7 @@ interface HistoryItem {
 }
 
 // Versi Aplikasi & Stempel Build Terpadu
-export const APP_VERSION = 'v2.6.0';
+export const APP_VERSION = 'v2.6.1';
 export const BUILD_NUMBER = 'Build 20261024';
 
 export default function App() {
@@ -305,6 +305,8 @@ export default function App() {
   
   // Status Proses Pembaruan Service Worker (Update Progress)
   const [appUpdateState, setAppUpdateState] = useState<'downloading' | 'completed' | null>(null);
+  const [currentBuildNumber, setCurrentBuildNumber] = useState(BUILD_NUMBER);
+  const [updateSuccessToast, setUpdateSuccessToast] = useState<string | null>(null);
   
   const prevDayRef = useRef('');
   
@@ -740,11 +742,32 @@ export default function App() {
       }
     }, 1200);
 
+    // Tangani notifikasi pembaruan berhasil dari Service Worker
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'SW_UPDATE_SUCCESS') {
+        if (event.data.build) {
+          setCurrentBuildNumber(event.data.build);
+        }
+        setUpdateSuccessToast(event.data.message || 'Aplikasi telah diperbarui ke versi terbaru!');
+        triggerHaptic([40, 30, 60]);
+        setTimeout(() => {
+          setUpdateSuccessToast(null);
+        }, 3500);
+      }
+    };
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
       clearTimeout(bannerTimer);
     };
   }, []);
@@ -1516,6 +1539,35 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Toast Notifikasi Pembaruan Berhasil */}
+        <AnimatePresence>
+          {updateSuccessToast && (
+            <motion.div
+              key="update-success-toast"
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ duration: 0.22, ease: "easeInOut" }}
+              className="absolute top-3 left-3 right-3 sm:left-4 sm:right-4 z-[70] pointer-events-none"
+            >
+              <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-slate-900/95 border border-emerald-400/60 shadow-[0_12px_32px_rgba(0,0,0,0.8),0_0_24px_rgba(52,211,153,0.35)] backdrop-blur-xl text-emerald-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-300 flex-shrink-0">
+                    <CheckCircleIcon className="w-4 h-4" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-bold text-emerald-100 truncate">{updateSuccessToast}</span>
+                    <span className="text-[10px] text-emerald-300/80 font-mono">Versi {APP_VERSION} ({currentBuildNumber}) aktif</span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-mono text-[9px] font-bold ml-2 flex-shrink-0">
+                  Terbaru
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Pop-up Banner Mengambang "Install TAPAK Scan" dengan Gesture Geser Atas (Swipe-Up) */}
         <AnimatePresence>
           {showInstallBanner && (
@@ -1874,7 +1926,7 @@ export default function App() {
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/70 border border-slate-800 shadow-sm backdrop-blur-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="font-mono text-[9.5px] font-medium text-slate-400 tracking-wider">
-                {APP_VERSION} • {BUILD_NUMBER}
+                {APP_VERSION} • {currentBuildNumber}
               </span>
             </div>
           </div>

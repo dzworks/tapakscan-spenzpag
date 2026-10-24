@@ -1,6 +1,6 @@
 // TAPAK Service Worker - SMP Negeri 1 Pagaden
 // Versi Cache-First penuh untuk mode luring total sejak instalasi pertama
-const CACHE_NAME = 'tapak-pwa-v4';
+const CACHE_NAME = 'tapak-pwa-v2.6.0';
 const CORE_PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -13,42 +13,57 @@ const CORE_PRECACHE_ASSETS = [
   'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap'
 ];
 
+// Fungsi pembersihan selektif seluruh cache lama (stale cache) sebelum aktivasi versi baru
+const cleanupStaleCaches = async () => {
+  try {
+    const cacheKeys = await caches.keys();
+    await Promise.all(
+      cacheKeys.map(async (key) => {
+        // Hapus selektif semua cache lama yang bukan versi aktif saat ini
+        if (key !== CACHE_NAME) {
+          await caches.delete(key);
+        }
+      })
+    );
+  } catch {
+    // Abaikan galat agar worker tetap tangguh
+  }
+};
+
 self.addEventListener('install', (event) => {
-  // Pre-cache seluruh aset shell tampilan inti (HTML, ikon, font) saat instalasi PWA di Chrome
+  // Bersihkan cache usang lama terlebih dahulu sebelum mengunduh shell versi baru
   event.waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
+    cleanupStaleCaches().then(async () => {
+      const cache = await caches.open(CACHE_NAME);
       for (const asset of CORE_PRECACHE_ASSETS) {
         try {
           await cache.add(asset);
         } catch {
-          // Abaikan kegagalan individual agar proses instalasi PWA tetap sukses
+          // Abaikan kegagalan individual agar proses instalasi tetap mulus
         }
       }
+      return self.skipWaiting();
     })
   );
-  self.skipWaiting();
 });
 
-// Listener pesan untuk aktivasi hening seketika (silent update)
+// Listener pesan untuk aktivasi hening seketika (silent update) dengan pembersihan cache usang tuntas
 self.addEventListener('message', (event) => {
   if (event.data && (event.data.type === 'SKIP_WAITING' || event.data === 'skipWaiting')) {
-    self.skipWaiting();
+    event.waitUntil(
+      cleanupStaleCaches().then(() => {
+        self.skipWaiting();
+      })
+    );
   }
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
+    cleanupStaleCaches().then(() => {
+      return self.clients.claim();
     })
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {

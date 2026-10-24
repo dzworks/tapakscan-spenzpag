@@ -1,46 +1,44 @@
-# Rencana Implementasi: Banner "Install TAPAK Scan" & Mekanisme Pembaruan Hening
+# Rencana Implementasi: Tampilan Versi v2.5.0 & Notifikasi Proses Update
 
-## 1. Jawaban Pertanyaan Teknis
-
-### A. Apakah dialog instalasi Chrome bisa di-bypass?
-- **Secara teknis: TIDAK BISA di-bypass total**. Kebijakan keamanan sandbox Android & browser Chromium (Google Chrome, Edge, Brave, Samsung Internet) secara tegas **melarang instalasi aplikasi secara diam-diam (silent install)** tanpa persetujuan pengguna, demi mencegah situs web berbahaya menyusupkan malware atau shortcut tanpa sepengetahuan pemilik perangkat.
-- **Solusi Terbaik (One-Tap Direct Flow)**:
-  - Tombol **"Instal"** pada banner kami sambungkan langsung ke `deferredPrompt.prompt()`.
-  - Ini akan langsung memunculkan lembar konfirmasi sistem resmi berukuran mini (*"Instal aplikasi TAPAK Scan? [Batal] [Instal]"*). Pengguna hanya perlu 1 sentuhan konfirmasi, tanpa perlu repot membuka menu titik tiga browser secara manual.
-
-### B. Bagaimana teknis upgrade/perubahan tampilan setelah aplikasi diinstall?
-- Sesuai preferensi Anda: **Pembaruan Hening Otomatis (*Silent Background Update*)**:
-  1. Setiap kali guru membuka aplikasi dalam kondisi online, browser secara otomatis memeriksa file `sw.js` di server.
-  2. Jika ada berkas baru (perubahan kode/tampilan), Service Worker baru akan diunduh dan dipersiapkan di latar belakang (*background prefetching*) tanpa memunculkan notifikasi atau mengganggu aktivitas presensi yang sedang berlangsung.
-  3. Ketika aplikasi ditutup dan dibuka kembali di sesi berikutnya, Service Worker baru langsung mengambil alih kendali cache secara hening, menyajikan aset tampilan yang sudah diperbarui secara instan.
+## 1. Tampilan Nomor Versi di Footer
+- **Nomor Versi Saat Ini**: **`v2.5.0`**
+- **Format Lengkap**: **`v2.5.0 • Build 20261024`**
+- **Posisi**: Di bagian paling bawah layar (*footer*) mendampingi teks resmi SMP Negeri 1 Pagaden.
+- **Tipografi**: Font monospace halus (`font-mono text-[9.5px] text-slate-400`), bersih dan tidak mengalihkan perhatian saat proses presensi.
+- **Aturan Pembaruan Versi**: Setiap kali ada penambahan fitur atau perbaikan kode di masa mendatang, nomor versi akan selalu dinaikkan secara berjenjang (SemVer: v2.5.1, v2.5.2, dst.).
 
 ---
 
-## 2. Rincian Fitur Banner "Install TAPAK Scan"
-
-### Tampilan & Posisi (Floating Top Card)
-- **Letak**: Mengambang di bagian atas layar (`fixed top-3 left-3 right-3 max-w-md mx-auto z-50`).
-- **Gaya Visual**:
-  - Latar belakang gelap elegan dengan *glassmorphism backdrop-blur* dan border halus.
-  - Sudut membulat modern (*rounded-2xl*) dengan bayangan melayang (*shadow-2xl*).
-  - Sisi kiri: Ikon logo TAPAK Scan dengan sudut melengkung.
-  - Bagian tengah: Teks judul **"Install TAPAK Scan"** dan deskripsi singkat *"Akses cepat & presensi luring"*.
-  - Sisi kanan: Tombol aksi teks/pill cyan cerah bertuliskan **"Instal"**.
-  - Bagian atas kartu: Indikator garis halus geser (*drag pill indicator*) sebagai petunjuk visual bahwa kartu dapat digeser ke atas.
-
-### Gesture Geser ke Atas (*Swipe-Up Dismiss*)
-- Menggunakan `framer-motion` dengan properti `drag="y"` dan batasan gerak ke atas (`dragConstraints={{ top: -100, bottom: 0 }}`).
-- Deteksi pelepasan (`onDragEnd`): jika digeser ke atas melebihi ambang batas (jarak geser > 25px atau kecepatan lemparan > 250px/s), kartu meluncur ke atas dan menghilang secara mulus (*exit transition*).
-
-### Siklus Hidup PWA & Retensi
-- **Penyimpanan 7 Hari**: Jika guru menggeser ke atas untuk menutup, tanggal kedaluwarsa disimpan di `localStorage` (`tapak_install_dismissed_until = Date.now() + 7 hari`). Banner tidak akan muncul kembali selama masa 7 hari tersebut.
-- **Deteksi Standalone**: Jika aplikasi sudah dijalankan dari layar utama (mode PWA terpasang), banner secara otomatis tidak ditampilkan.
-- **Panduan iOS**: Jika dibuka di Safari iOS (yang tidak memiliki event `beforeinstallprompt`), tombol "Instal" akan menampilkan tooltip/panduan ringkas *"Ketuk ikon Bagikan, lalu pilih Tambah ke Layar Utama"*.
+## 2. Banner Notifikasi Proses Pembaruan Aplikasi
+- **Pemicu**: Terdeteksi berkas versi baru oleh Service Worker saat registrasi atau event `updatefound`.
+- **Bentuk Visual**:
+  - Banner status mengambang halus di bagian atas layar (`fixed top-4 left-4 right-4 z-50` atau di atas konten dashboard).
+  - Background gelap elegan dengan *backdrop-blur*, border cyan, dan bayangan lembut.
+  - Dilengkapi spinner neon cyan halus yang berputar saat proses pengunduhan berlangsung.
+- **Fase Status**:
+  1. **Saat Mengunduh**: Menampilkan teks *"Mengunduh pembaruan versi baru..."* disertai animasi spinner cyan.
+  2. **Saat Selesai**: Teks beralih ke *"Pembaruan versi berhasil diunduh (aktif sesi berikutnya)"* dengan ikon centang emerald.
+  3. **Auto-Dismiss**: Notifikasi otomatis menghilang dengan animasi *fade-out* setelah 3 detik selesai.
 
 ---
 
-## 3. Rencana Pengujian & Verifikasi
-1. **Verifikasi Geser Ke Atas**: Memastikan kartu banner dapat ditarik ke atas dengan responsif dan meluncur keluar dengan mulus.
-2. **Verifikasi Tombol Instal**: Memastikan tombol memicu dialog konfirmasi PWA native peramban.
-3. **Verifikasi Retensi 7 Hari**: Memastikan banner tidak muncul kembali setelah di-swipe tutup hingga 7 hari ke depan.
-4. **Verifikasi Build**: Menjalankan `compile_applet` untuk memastikan seluruh tipe dan sintaksis TypeScript bersih tanpa galat.
+## 3. Rencana Perubahan Kode
+- **`src/App.tsx`**:
+  - Menetapkan konstanta terpusat:
+    ```typescript
+    export const APP_VERSION = 'v2.5.0';
+    export const BUILD_NUMBER = 'Build 20261024';
+    ```
+  - Menambahkan state pembaruan: `updateStatus: 'downloading' | 'completed' | null`.
+  - Menghubungkan listener `updatefound` dan `statechange` pada Service Worker untuk memperbarui state `updateStatus`.
+  - Merender banner notifikasi proses pembaruan menggunakan `AnimatePresence` dan `motion.div`.
+  - Menambahkan elemen tampilan versi di bagian footer layar.
+- **`public/sw.js`**:
+  - Memastikan pengiriman event atau penanganan update sinkron dengan status klien.
+
+---
+
+## 4. Rencana Verifikasi
+1. **Verifikasi Visual Footer**: Memastikan label `v2.5.0 • Build 20261024` tampil rapi dan proporsional di footer bawah.
+2. **Verifikasi Siklus Banner Update**: Memastikan transisi dari mengunduh -> selesai -> otomatis tertutup setelah 3 detik berjalan lancar tanpa galat.
+3. **Pemeriksaan Kompilasi & Lint**: Menjalankan `compile_applet` dan `lint_applet` untuk menjamin tidak ada kesalahan sintaksis atau tipe.

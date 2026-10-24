@@ -1,6 +1,6 @@
 {
-  "summary":  "Revisi rencana implementasi banner instalasi 'Install TAPAK Scan' dengan gesture geser ke atas, penjelasan pembatasan keamanan OS terkait dialog instalasi, serta arsitektur pembaruan tampilan hening (silent update) di sesi berikutnya.",
-  "updatedAt":  "2026-10-24T17:17:08.541613694Z",
+  "summary":  "Revisi rencana implementasi: Menampilkan versi aplikasi v2.5.0 di footer, menambahkan banner notifikasi proses update di bagian atas layar dengan spinner cyan yang otomatis hilang setelah 3 detik, serta protokol pembaruan nomor versi pada setiap perubahan berikutnya.",
+  "updatedAt":  "2026-10-24T17:52:27.697279899Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

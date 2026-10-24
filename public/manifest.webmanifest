@@ -1,0 +1,38 @@
+{
+  "id": "/",
+  "name": "TAPAK - SMP Negeri 1 Pagaden",
+  "short_name": "TAPAK",
+  "description": "Sistem Tata Kehadiran Pendidik dalam Kelas (TAPAK) SMP Negeri 1 Pagaden",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080c17",
+  "theme_color": "#080c17",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/aistudio/file_00000000dcb08207ae0f7eeb2202ae51_ea804da4.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

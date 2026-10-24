@@ -1,0 +1,6 @@
+{
+  "name": "TAPAK - SMP Negeri 1 Pagaden",
+  "description": "Sistem Tata Kehadiran Pendidik dalam Kelas (TAPAK) SMP Negeri 1 Pagaden berbasis web mobile responsive dengan pemindai QR dan mode luring.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

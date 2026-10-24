@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: #080c17;
+    color: #f1f5f9;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@keyframes pulseRing {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.08); opacity: 0.2; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+.animate-pulse-ring { 
+  animation: pulseRing 3s infinite ease-in-out; 
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-6px); }
+}
+.animate-shake { 
+  animation: shake 0.4s ease-in-out; 
+}
+
+/* Konfigurasi CSS Full-Screen Kamera */
+#reader {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  background: black !important;
+}
+#reader video {
+  object-fit: cover !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+#reader__dashboard_section_csr { 
+  display: none !important; 
+}
+#reader__scan_region {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Menghilangkan seluruh area redup bawaan library html5-qrcode */
+#qr-shaded-region { 
+  display: none !important; 
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 6px;
+}

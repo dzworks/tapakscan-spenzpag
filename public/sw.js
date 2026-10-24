@@ -29,6 +29,13 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
+// Listener pesan untuk aktivasi hening seketika (silent update)
+self.addEventListener('message', (event) => {
+  if (event.data && (event.data.type === 'SKIP_WAITING' || event.data === 'skipWaiting')) {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {

@@ -22,6 +22,10 @@ const cleanupStaleCaches = async () => {
         // Hapus selektif semua cache lama yang bukan versi aktif saat ini
         if (key !== CACHE_NAME) {
           await caches.delete(key);
+        } else {
+          // Bersihkan icon.svg dari cache aktif jika pernah tersimpan
+          const currentCache = await caches.open(key);
+          await currentCache.delete('/icon.svg');
         }
       })
     );
@@ -94,6 +98,22 @@ self.addEventListener('fetch', (event) => {
 
   // Jangan tangani API eksternal Google Apps Script via service worker (dikelola oleh App.tsx local storage)
   if (url.hostname.includes('script.google.com') || url.hostname.includes('script.googleusercontent.com')) {
+    return;
+  }
+
+  // 0. Penanganan Manifest Web App - Network-First agar peramban selalu mengambil ikon terbaru
+  if (url.pathname.includes('manifest')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+    );
     return;
   }
 

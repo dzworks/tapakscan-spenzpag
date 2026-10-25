@@ -1,44 +1,35 @@
-# Rencana Implementasi: Tampilan Versi v2.5.0 & Notifikasi Proses Update
+# Rencana Implementasi: Perbaikan Ikon PWA Logo 3D "T" di Chrome
 
-## 1. Tampilan Nomor Versi di Footer
-- **Nomor Versi Saat Ini**: **`v2.5.0`**
-- **Format Lengkap**: **`v2.5.0 • Build 20261024`**
-- **Posisi**: Di bagian paling bawah layar (*footer*) mendampingi teks resmi SMP Negeri 1 Pagaden.
-- **Tipografi**: Font monospace halus (`font-mono text-[9.5px] text-slate-400`), bersih dan tidak mengalihkan perhatian saat proses presensi.
-- **Aturan Pembaruan Versi**: Setiap kali ada penambahan fitur atau perbaikan kode di masa mendatang, nomor versi akan selalu dinaikkan secara berjenjang (SemVer: v2.5.1, v2.5.2, dst.).
-
----
-
-## 2. Banner Notifikasi Proses Pembaruan Aplikasi
-- **Pemicu**: Terdeteksi berkas versi baru oleh Service Worker saat registrasi atau event `updatefound`.
-- **Bentuk Visual**:
-  - Banner status mengambang halus di bagian atas layar (`fixed top-4 left-4 right-4 z-50` atau di atas konten dashboard).
-  - Background gelap elegan dengan *backdrop-blur*, border cyan, dan bayangan lembut.
-  - Dilengkapi spinner neon cyan halus yang berputar saat proses pengunduhan berlangsung.
-- **Fase Status**:
-  1. **Saat Mengunduh**: Menampilkan teks *"Mengunduh pembaruan versi baru..."* disertai animasi spinner cyan.
-  2. **Saat Selesai**: Teks beralih ke *"Pembaruan versi berhasil diunduh (aktif sesi berikutnya)"* dengan ikon centang emerald.
-  3. **Auto-Dismiss**: Notifikasi otomatis menghilang dengan animasi *fade-out* setelah 3 detik selesai.
+## 1. Analisis Akar Masalah (Root Cause)
+- Pada berkas `manifest.webmanifest` dan `manifest.json`, ikon urutan teratas yang didefinisikan adalah `/icon.svg` dengan properti `"sizes": "any"` dan `"purpose": "any maskable"`.
+- Berkas `/public/icon.svg` tersebut berisi grafik vektor lama berbentuk lingkaran centang biru.
+- Sesuai spesifikasi W3C Web App Manifest dan perilaku peramban Chromium (Google Chrome), browser secara otomatis memprioritaskan format vektor SVG (`sizes: any`) dibandingkan berkas PNG.
+- Akibatnya, saat pengguna melakukan instalasi via Chrome, Chrome memilih `/icon.svg` lama alih-alih logo 3D "T" (`pwa-192x192.png` dan `pwa-512x512.png`).
 
 ---
 
-## 3. Rencana Perubahan Kode
-- **`src/App.tsx`**:
-  - Menetapkan konstanta terpusat:
-    ```typescript
-    export const APP_VERSION = 'v2.5.0';
-    export const BUILD_NUMBER = 'Build 20261024';
-    ```
-  - Menambahkan state pembaruan: `updateStatus: 'downloading' | 'completed' | null`.
-  - Menghubungkan listener `updatefound` dan `statechange` pada Service Worker untuk memperbarui state `updateStatus`.
-  - Merender banner notifikasi proses pembaruan menggunakan `AnimatePresence` dan `motion.div`.
-  - Menambahkan elemen tampilan versi di bagian footer layar.
-- **`public/sw.js`**:
-  - Memastikan pengiriman event atau penanganan update sinkron dengan status klien.
+## 2. Rencana Perubahan
+
+### A. Pembersihan & Pembaruan Web Manifest
+- **File Target**: `public/manifest.webmanifest` dan `public/manifest.json`
+- Menghapus entri `/icon.svg` dari daftar `icons`.
+- Mengatur daftar `icons` secara presisi menggunakan berkas logo 3D "T" asli:
+  - `pwa-192x192.png` (ukuran 192x192, `purpose: "any"`)
+  - `pwa-192x192.png` (ukuran 192x192, `purpose: "maskable"`)
+  - `pwa-512x512.png` (ukuran 512x512, `purpose: "any"`)
+  - `pwa-512x512.png` (ukuran 512x512, `purpose: "maskable"`)
+  - `/assets/aistudio/file_00000000dcb08207ae0f7eeb2202ae51_ea804da4.png` (ukuran 1024x1024, `purpose: "any"`)
+- Menghapus berkas `/public/icon.svg` agar tidak ada sisa aset lama.
+
+### B. Pembersihan Cache Service Worker
+- **File Target**: `public/sw.js`
+- Menghapus `/icon.svg` dari daftar `CORE_PRECACHE_ASSETS`.
+- Memastikan mekanisme pembersihan cache menghapus cache manifest lama agar peramban langsung mengambil metadata ikon terbaru saat aplikasi dibuka.
+- Mempertahankan nomor versi aplikasi saat ini (`v2.6.1`) sesuai pilihan Anda.
 
 ---
 
-## 4. Rencana Verifikasi
-1. **Verifikasi Visual Footer**: Memastikan label `v2.5.0 • Build 20261024` tampil rapi dan proporsional di footer bawah.
-2. **Verifikasi Siklus Banner Update**: Memastikan transisi dari mengunduh -> selesai -> otomatis tertutup setelah 3 detik berjalan lancar tanpa galat.
-3. **Pemeriksaan Kompilasi & Lint**: Menjalankan `compile_applet` dan `lint_applet` untuk menjamin tidak ada kesalahan sintaksis atau tipe.
+## 3. Rencana Pengujian & Verifikasi
+1. **Verifikasi Manifest**: Memastikan file `manifest.webmanifest` dan `manifest.json` valid tanpa referensi ke file SVG lama.
+2. **Pemeriksaan Kompilasi & Lint**: Menjalankan `compile_applet` dan `lint_applet` untuk menjamin tidak ada galat sintaksis.
+3. **Verifikasi Ikon PWA**: Memverifikasi bahwa ikon splash dan instalasi Chrome menargetkan berkas logo 3D "T" (`pwa-192x192.png` & `pwa-512x512.png`).

@@ -1,6 +1,6 @@
 {
-  "summary":  "Revisi rencana implementasi: Menampilkan versi aplikasi v2.5.0 di footer, menambahkan banner notifikasi proses update di bagian atas layar dengan spinner cyan yang otomatis hilang setelah 3 detik, serta protokol pembaruan nomor versi pada setiap perubahan berikutnya.",
-  "updatedAt":  "2026-10-24T17:52:27.697279899Z",
+  "summary":  "Rencana implementasi perbaikan ikon instalasi PWA di Chrome agar menggunakan logo 3D 'T' yang diunggah: menghapus entri SVG lama dari manifest, mengonfigurasi PNG resolusi tinggi (any & maskable), dan membersihkan cache Service Worker.",
+  "updatedAt":  "2026-10-25T14:37:04.532240119Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

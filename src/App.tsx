@@ -295,8 +295,8 @@ interface HistoryItem {
 }
 
 // Versi Aplikasi & Stempel Build Terpadu
-export const APP_VERSION = 'v2.6.1';
-export const BUILD_NUMBER = 'Build 20261024';
+export const APP_VERSION = 'v2.6.2';
+export const BUILD_NUMBER = 'Build 20261025';
 
 export default function App() {
   const [time, setTime] = useState('');
@@ -1258,13 +1258,10 @@ export default function App() {
       scanner = new Html5Qrcode("reader");
       html5QrCodeRef.current = scanner;
       
+      // Konfigurasi pemindaian seluruh layar (100% full-viewport scanning) tanpa batasan qrbox
+      // Memungkinkan pembacaan seketika di mana pun QR code tampak di layar pada 20 FPS responsif
       const config = { 
-        fps: 15, 
-        qrbox: (vw: number, vh: number) => {
-          const size = Math.max(200, Math.min(vw, vh) * 0.75);
-          return { width: size, height: size };
-        }, 
-        aspectRatio: 1.0 
+        fps: 20 
       };
 
       scanner.start(
@@ -2094,8 +2091,8 @@ export default function App() {
               className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col"
             >
               {/* Background Layer: Layar Kamera Penuh */}
-              <div className="absolute inset-0 z-0">
-                <div id="reader" className="w-full h-full bg-black"></div>
+              <div className="absolute inset-0 z-0 overflow-hidden">
+                <div id="reader" className="w-full h-full bg-black flex items-center justify-center [&_video]:w-full [&_video]:h-full [&_video]:object-cover overflow-hidden"></div>
               </div>
 
               {/* Seamless Camera Stream Fade-In Overlay to eliminate flicker */}

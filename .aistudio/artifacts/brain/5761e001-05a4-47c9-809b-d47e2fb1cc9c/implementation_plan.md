@@ -1,35 +1,41 @@
-# Rencana Implementasi: Perbaikan Ikon PWA Logo 3D "T" di Chrome
+# Rencana Implementasi: Pemindaian QR Code Seluruh Layar (Full-Viewport) & Peningkatan FPS
 
 ## 1. Analisis Akar Masalah (Root Cause)
-- Pada berkas `manifest.webmanifest` dan `manifest.json`, ikon urutan teratas yang didefinisikan adalah `/icon.svg` dengan properti `"sizes": "any"` dan `"purpose": "any maskable"`.
-- Berkas `/public/icon.svg` tersebut berisi grafik vektor lama berbentuk lingkaran centang biru.
-- Sesuai spesifikasi W3C Web App Manifest dan perilaku peramban Chromium (Google Chrome), browser secara otomatis memprioritaskan format vektor SVG (`sizes: any`) dibandingkan berkas PNG.
-- Akibatnya, saat pengguna melakukan instalasi via Chrome, Chrome memilih `/icon.svg` lama alih-alih logo 3D "T" (`pwa-192x192.png` dan `pwa-512x512.png`).
+- **Penyebab Area Baca Bergeser ke Bawah**:
+  Pada berkas `src/App.tsx`, inisialisasi pemindai kamera menggunakan parameter pembatas `qrbox` dan `aspectRatio: 1.0`:
+  ```typescript
+  const config = { 
+    fps: 15, 
+    qrbox: (vw: number, vh: number) => {
+      const size = Math.max(200, Math.min(vw, vh) * 0.75);
+      return { width: size, height: size };
+    }, 
+    aspectRatio: 1.0 
+  };
+  ```
+- Pembatas `qrbox` memotong kanvas decoding pada koordinat video mentah. Pada rasio layar ponsel (16:9 / 20:9), pemaksaan `aspectRatio: 1.0` bersama perbesaran CSS membuat area potongan internal bergeser beberapa sentimeter ke bawah relatif terhadap kotak grafis lengkung di antarmuka pengguna.
+- Pembatasan ini juga memblokir pemindaian jika QR code berada di luar kotak tersebut.
 
 ---
 
-## 2. Rencana Perubahan
+## 2. Rencana Perubahan pada `src/App.tsx`
 
-### A. Pembersihan & Pembaruan Web Manifest
-- **File Target**: `public/manifest.webmanifest` dan `public/manifest.json`
-- Menghapus entri `/icon.svg` dari daftar `icons`.
-- Mengatur daftar `icons` secara presisi menggunakan berkas logo 3D "T" asli:
-  - `pwa-192x192.png` (ukuran 192x192, `purpose: "any"`)
-  - `pwa-192x192.png` (ukuran 192x192, `purpose: "maskable"`)
-  - `pwa-512x512.png` (ukuran 512x512, `purpose: "any"`)
-  - `pwa-512x512.png` (ukuran 512x512, `purpose: "maskable"`)
-  - `/assets/aistudio/file_00000000dcb08207ae0f7eeb2202ae51_ea804da4.png` (ukuran 1024x1024, `purpose: "any"`)
-- Menghapus berkas `/public/icon.svg` agar tidak ada sisa aset lama.
+### A. Aktifkan Pemindaian Penuh Seluruh Layar (Full-Viewport Scanning)
+- Menghapus batasan `qrbox` dari konfigurasi `Html5Qrcode.start()`.
+- Sesuai dokumentasi resmi `html5-qrcode`, jika `qrbox` ditiadakan, mesin pemindai akan membaca QR code pada **seluruh area tangkapan lensa kamera yang tampak di layar (100% full frame)**.
+- Kode QR yang berada di mana pun di dalam layar (tepat di tengah, sedikit di atas, di bawah, atau di pinggir) akan langsung terbaca tanpa ada *dead-zone* (zona mati).
 
-### B. Pembersihan Cache Service Worker
-- **File Target**: `public/sw.js`
-- Menghapus `/icon.svg` dari daftar `CORE_PRECACHE_ASSETS`.
-- Memastikan mekanisme pembersihan cache menghapus cache manifest lama agar peramban langsung mengambil metadata ikon terbaru saat aplikasi dibuka.
-- Mempertahankan nomor versi aplikasi saat ini (`v2.6.1`) sesuai pilihan Anda.
+### B. Tingkatkan Responsivitas Deteksi ke 20 FPS
+- Mengubah frekuensi penangkapan dari `fps: 15` menjadi `fps: 20` sesuai preferensi Anda.
+- Frekuensi 20 FPS memberikan keseimbangan ideal antara kecepatan tangkap instan dan efisiensi pemrosesan CPU perangkat ponsel.
+
+### C. Pertahankan Kotak Pembidik Visual & Animasi
+- Kotak lengkung bercahaya neon, garis sudut pembidik, dan sapuan laser pemindai tetap dipertahankan di tengah layar sebagai panduan visual yang ergonomis bagi guru.
+- Memastikan rasio aspek video mengalir alami tanpa distorsi atau peregangan geometris.
 
 ---
 
 ## 3. Rencana Pengujian & Verifikasi
-1. **Verifikasi Manifest**: Memastikan file `manifest.webmanifest` dan `manifest.json` valid tanpa referensi ke file SVG lama.
-2. **Pemeriksaan Kompilasi & Lint**: Menjalankan `compile_applet` dan `lint_applet` untuk menjamin tidak ada galat sintaksis.
-3. **Verifikasi Ikon PWA**: Memverifikasi bahwa ikon splash dan instalasi Chrome menargetkan berkas logo 3D "T" (`pwa-192x192.png` & `pwa-512x512.png`).
+1. **Verifikasi Area Deteksi**: Memastikan QR code terbaca secara akurat baik saat berada tepat di dalam kotak lengkung, di tepi kotak, maupun di area layar lainnya.
+2. **Verifikasi Kecepatan Respons**: Memastikan deteksi QR terjadi seketika dalam sepersekian detik (20 FPS).
+3. **Pemeriksaan Kompilasi & Lint**: Menjalankan `compile_applet` dan `lint_applet` untuk memastikan kode bebas dari kesalahan sintaksis.

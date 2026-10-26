@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana implementasi perbaikan ikon instalasi PWA di Chrome agar menggunakan logo 3D 'T' yang diunggah: menghapus entri SVG lama dari manifest, mengonfigurasi PNG resolusi tinggi (any & maskable), dan membersihkan cache Service Worker.",
-  "updatedAt":  "2026-10-25T14:37:04.532240119Z",
+  "summary":  "Rencana implementasi pemindaian QR code seluruh layar (full-viewport scanning) tanpa batasan qrbox, peningkatan responsivitas sensor ke 20 FPS, dan mempertahankan kotak pembidik visual sebagai panduan ergonomis.",
+  "updatedAt":  "2026-10-26T02:16:08.694792266Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

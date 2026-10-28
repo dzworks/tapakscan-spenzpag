@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana implementasi pemindaian QR code seluruh layar (full-viewport scanning) tanpa batasan qrbox, peningkatan responsivitas sensor ke 20 FPS, dan mempertahankan kotak pembidik visual sebagai panduan ergonomis.",
-  "updatedAt":  "2026-10-26T02:16:08.694792266Z",
+  "summary":  "Rencana revisi komprehensif optimasi performa modal perizinan dan seluruh alur modal QR Code (kamera pemindai hingga formulir presensi):\n1. Optimasi alur kamera QR: menyederhanakan animasi garis laser pemindai tanpa drop-shadow filter berat dan menghilangkan filter blur pada lencana sukses.\n2. Optimasi seluruh popup dialog QR & konfirmasi integritas: mengganti backdrop-blur dengan latar gelap pekat dan transisi instan tanpa spring scale physics.\n3. Optimasi pencarian Guru Pengganti (Inval): membatasi dropdown maksimal 15 hasil dengan indikator pencarian.\n4. Optimasi modal izin: menghilangkan backdrop-blur, memoize jadwal pendidik, membatasi dropdown guru 15 item, dan transisi instan.",
+  "updatedAt":  "2026-10-28T14:56:41.791365210Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

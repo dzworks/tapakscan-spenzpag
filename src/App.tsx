@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Html5Qrcode, CameraDevice } from 'html5-qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -169,6 +169,12 @@ const SwitchCameraIcon = ({ className = "w-6 h-6" }: { className?: string }) => 
   </svg>
 );
 
+const CalendarIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+  </svg>
+);
+
 // Audio Chime Synthesizer
 const playSuccessChime = () => {
   try {
@@ -248,13 +254,106 @@ interface ScheduleItem {
   [key: string]: any;
 }
 
+export interface HolidayEvent {
+  tanggal: string;
+  hari?: string;
+  keterangan: string;
+  jam_mulai?: string;
+  jam_selesai?: string;
+}
+
 interface LocalCache {
   classes: Record<string, { id_kelas: string; nama_kelas: string; lokasi_ruang: string }>;
   schedules: Record<string, ScheduleItem[]>;
   master_guru: Record<string, { nama: string; nip: string }>;
   master_mapel: Record<string, string>;
   master_ruangan?: Record<string, { nama_ruangan: string; pin: string | number }>;
+  hari_libur?: HolidayEvent[];
 }
+
+// Helper konversi format "HH:mm" atau "HH.mm" ke total menit
+export const timeStrToMinutes = (timeStr?: string): number => {
+  if (!timeStr) return -1;
+  const parts = timeStr.toString().trim().replace('.', ':').split(':');
+  if (parts.length < 2) return -1;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return -1;
+  return h * 60 + m;
+};
+
+// Helper normalisasi tanggal ke format standar YYYY-MM-DD
+export const normalizeDateString = (dateInput: string | Date): string => {
+  if (!dateInput) return '';
+  if (dateInput instanceof Date) {
+    const y = dateInput.getFullYear();
+    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+    const d = String(dateInput.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = dateInput.toString().trim();
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+  return str.substring(0, 10);
+};
+
+// Cek apakah tanggal hari libur / kegiatan cocok dengan target tanggal
+export const isHolidayActiveToday = (holiday: HolidayEvent, targetDate: Date = new Date()): boolean => {
+  if (!holiday.tanggal) return false;
+  const todayStr = normalizeDateString(targetDate);
+  const holidayDateStr = normalizeDateString(holiday.tanggal);
+  if (todayStr === holidayDateStr) return true;
+
+  const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const todayDay = daysOrder[targetDate.getDay()];
+  if (holiday.hari && holiday.hari.toLowerCase() === todayDay.toLowerCase()) {
+    if (!holiday.tanggal || holiday.tanggal === '-') return true;
+  }
+  return false;
+};
+
+// Cek apakah suatu jadwal KBM atau waktu tertentu overlap dengan kegiatan sekolah
+export const checkScheduleHolidayOverlap = (
+  sched: { jam_mulai?: string; jam_selesai?: string },
+  holiday: HolidayEvent,
+  targetDate: Date = new Date()
+): { isOverlap: boolean; isFullDay: boolean } => {
+  if (!isHolidayActiveToday(holiday, targetDate)) {
+    return { isOverlap: false, isFullDay: false };
+  }
+
+  const hStart = timeStrToMinutes(holiday.jam_mulai);
+  const hEnd = timeStrToMinutes(holiday.jam_selesai);
+
+  // Jika jam_mulai & jam_selesai kosong atau "-", artinya berlaku seharian penuh
+  if (hStart < 0 && hEnd < 0) {
+    return { isOverlap: true, isFullDay: true };
+  }
+
+  const sStart = timeStrToMinutes(sched.jam_mulai);
+  const sEnd = timeStrToMinutes(sched.jam_selesai);
+
+  if (sStart >= 0 && sEnd >= 0) {
+    const effHStart = hStart >= 0 ? hStart : 0;
+    const effHEnd = hEnd >= 0 ? hEnd : 24 * 60;
+    const overlap = sStart < effHEnd && effHStart < sEnd;
+    return { isOverlap: overlap, isFullDay: false };
+  }
+
+  const nowMin = targetDate.getHours() * 60 + targetDate.getMinutes();
+  const effHStart = hStart >= 0 ? hStart : 0;
+  const effHEnd = hEnd >= 0 ? hEnd : 24 * 60;
+  const activeNow = nowMin >= effHStart && nowMin <= effHEnd;
+  return { isOverlap: activeNow, isFullDay: false };
+};
 
 interface ScanResultState {
   id_kelas: string;
@@ -295,8 +394,8 @@ interface HistoryItem {
 }
 
 // Versi Aplikasi & Stempel Build Terpadu
-export const APP_VERSION = 'v2.6.2';
-export const BUILD_NUMBER = 'Build 20261025';
+export const APP_VERSION = 'v2.6.4';
+export const BUILD_NUMBER = 'Build 20261026.1';
 
 export default function App() {
   const [time, setTime] = useState('');
@@ -310,14 +409,61 @@ export default function App() {
   
   const prevDayRef = useRef('');
   
-  const [localCache, setLocalCache] = useState<LocalCache | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle'); 
+  // Inisialisasi instan (0 detik): Baca langsung cache hari ini dari penyimpanan lokal
+  const [localCache, setLocalCache] = useState<LocalCache | null>(() => {
+    try {
+      const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      const today = daysOrder[new Date().getDay()];
+      const cached = localStorage.getItem(`tapak_master_v1_${today}`);
+      const holidaysCached = localStorage.getItem('tapak_holidays_v1');
+      let holidays: HolidayEvent[] | undefined = undefined;
+      if (holidaysCached) {
+        try { holidays = JSON.parse(holidaysCached); } catch {}
+      }
+      if (cached) {
+        const parsed: LocalCache = JSON.parse(cached);
+        if (holidays && (!parsed.hari_libur || parsed.hari_libur.length === 0)) {
+          parsed.hari_libur = holidays;
+        }
+        return parsed;
+      }
+    } catch {}
+    return null;
+  });
+
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>(() => {
+    try {
+      const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+      const today = daysOrder[new Date().getDay()];
+      const cached = localStorage.getItem(`tapak_master_v1_${today}`);
+      if (cached) return 'success';
+    } catch {}
+    return 'idle';
+  }); 
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalPhase, setModalPhase] = useState<
-    'CLOSED' | 'SCANNING' | 'PIN_VERIFICATION' | 'SELECT_CLASS' | 'NO_SCHEDULE' | 'FORM' | 'LOADING' | 'ERROR' | 'SUCCESS' | 'SUCCESS_OFFLINE'
+    'CLOSED' | 'SCANNING' | 'PIN_VERIFICATION' | 'SELECT_CLASS' | 'NO_SCHEDULE' | 'SCHOOL_EVENT' | 'FORM' | 'LOADING' | 'ERROR' | 'SUCCESS' | 'SUCCESS_OFFLINE'
   >('CLOSED');
   const [apiError, setApiError] = useState<string | null>(null);
+  const [matchedSchoolEvent, setMatchedSchoolEvent] = useState<HolidayEvent | null>(null);
+
+  // Daftar kegiatan / hari libur sekolah hari ini
+  const todayHolidayEvents = useMemo(() => {
+    if (!localCache?.hari_libur || !Array.isArray(localCache.hari_libur)) return [];
+    const now = new Date();
+    return localCache.hari_libur.filter(h => isHolidayActiveToday(h, now));
+  }, [localCache?.hari_libur, dateStr]);
+
+  // Kegiatan sekolah yang sedang berlangsung detik ini (baik seharian maupun rentang jam)
+  const currentActiveEvent = useMemo(() => {
+    const now = new Date();
+    for (const h of todayHolidayEvents) {
+      const check = checkScheduleHolidayOverlap({}, h, now);
+      if (check.isOverlap) return h;
+    }
+    return null;
+  }, [todayHolidayEvents, time]);
   
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState('');
@@ -359,6 +505,7 @@ export default function App() {
   const [sentHistory, setSentHistory] = useState<HistoryItem[]>([]);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [syncBannerStatus, setSyncBannerStatus] = useState<'syncing' | 'success' | 'online' | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Pull-to-Refresh & Offline Feedback States
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -393,17 +540,90 @@ export default function App() {
   const [pinErrorShake, setPinErrorShake] = useState(false);
   const [dynamicRoomData, setDynamicRoomData] = useState<{ nama_ruangan: string; pin: string | number } | null>(null);
 
-  const teacherList = localCache && localCache.master_guru 
-    ? Object.entries(localCache.master_guru).map(([id, data]) => ({ id, nama: data.nama, nip: data.nip }))
-    : [];
+  const teacherList = useMemo(() => {
+    return localCache && localCache.master_guru 
+      ? Object.entries(localCache.master_guru).map(([id, data]) => ({ id, nama: data.nama, nip: data.nip }))
+      : [];
+  }, [localCache?.master_guru]);
+
+  const filteredLeaveTeachers = useMemo(() => {
+    if (!teacherSearch.trim()) return teacherList;
+    const lower = teacherSearch.toLowerCase();
+    return teacherList.filter(t => t.nama.toLowerCase().includes(lower));
+  }, [teacherList, teacherSearch]);
+
+  const displayedLeaveTeachers = useMemo(() => {
+    return filteredLeaveTeachers.slice(0, 15);
+  }, [filteredLeaveTeachers]);
+
+  const filteredPenggantiTeachers = useMemo(() => {
+    if (!penggantiSearch.trim()) return teacherList;
+    const lower = penggantiSearch.toLowerCase();
+    return teacherList.filter(t => t.nama.toLowerCase().includes(lower));
+  }, [teacherList, penggantiSearch]);
+
+  const displayedPenggantiTeachers = useMemo(() => {
+    return filteredPenggantiTeachers.slice(0, 15);
+  }, [filteredPenggantiTeachers]);
+
+  const sortedClassGroups = useMemo(() => {
+    if (!localCache?.classes) return [];
+    const uniqueClasses = Array.from(new Set(Object.values(localCache.classes).map(c => c.nama_kelas)));
+    
+    const groupedClasses: Record<string, { num: number; classes: string[] }> = {};
+    uniqueClasses.forEach(className => {
+      const upperName = className.toUpperCase();
+      let gradeKey = "Kelas Lainnya";
+      let gradeNum = 99; 
+      
+      if (upperName.includes("VIII")) { gradeKey = "Tingkat 8 (VIII)"; gradeNum = 8; }
+      else if (upperName.includes("VII")) { gradeKey = "Tingkat 7 (VII)"; gradeNum = 7; }
+      else if (upperName.includes("IX")) { gradeKey = "Tingkat 9 (IX)"; gradeNum = 9; }
+      
+      if (!groupedClasses[gradeKey]) {
+        groupedClasses[gradeKey] = { num: gradeNum, classes: [] };
+      }
+      groupedClasses[gradeKey].classes.push(className);
+    });
+
+    return Object.keys(groupedClasses)
+      .sort((a, b) => groupedClasses[a].num - groupedClasses[b].num)
+      .map(groupKey => ({
+        groupKey,
+        classes: groupedClasses[groupKey].classes.sort((a, b) => a.localeCompare(b))
+      }));
+  }, [localCache?.classes]);
 
   const getTeacherSchedules = (tId: string) => {
     if (!localCache || !localCache.schedules) return [];
     const schedules: ScheduleItem[] = [];
+    const now = new Date();
     for (const className in localCache.schedules) {
       localCache.schedules[className].forEach((sched, index) => {
         if (sched.kode_guru === tId) {
-          schedules.push({ ...sched, id: `${className}_${sched.jam_ke}_${index}`, nama_kelas: className });
+          let isKegiatanSekolah = false;
+          let kegiatanName = '';
+          if (todayHolidayEvents && todayHolidayEvents.length > 0) {
+            for (const h of todayHolidayEvents) {
+              const overlap = checkScheduleHolidayOverlap(
+                { jam_mulai: sched.jam_mulai, jam_selesai: sched.jam_selesai },
+                h,
+                now
+              );
+              if (overlap.isOverlap) {
+                isKegiatanSekolah = true;
+                kegiatanName = h.keterangan;
+                break;
+              }
+            }
+          }
+          schedules.push({ 
+            ...sched, 
+            id: `${className}_${sched.jam_ke}_${index}`, 
+            nama_kelas: className,
+            isKegiatanSekolah,
+            kegiatanName
+          });
         }
       });
     }
@@ -414,6 +634,11 @@ export default function App() {
     return schedules;
   };
 
+  const currentTeacherSchedules = useMemo(() => {
+    if (!leaveForm.teacherId || !localCache?.schedules) return [];
+    return getTeacherSchedules(leaveForm.teacherId);
+  }, [leaveForm.teacherId, localCache?.schedules, todayHolidayEvents]);
+
   const handleLeaveSessionToggle = (sessionId: string) => {
     setLeaveForm(prev => {
       const newSessions = prev.sessions.includes(sessionId) 
@@ -421,7 +646,9 @@ export default function App() {
         : [...prev.sessions, sessionId];
         
       const teacherSchedules = getTeacherSchedules(prev.teacherId);
-      const isAllSelected = teacherSchedules.length > 0 && newSessions.length === teacherSchedules.length;
+      const effectiveSchedules = teacherSchedules.filter(s => !s.isKegiatanSekolah);
+      const targetCount = effectiveSchedules.length > 0 ? effectiveSchedules.length : teacherSchedules.length;
+      const isAllSelected = targetCount > 0 && newSessions.length === targetCount;
         
       return { ...prev, sessions: newSessions, isFullDay: isAllSelected };
     });
@@ -447,39 +674,37 @@ export default function App() {
     const leaveDateFormatted = `${dd}-${bulanIndo[d.getMonth()]}-${yyyy}`;
 
     const schedules = getTeacherSchedules(leaveForm.teacherId);
-    const selectedSchedules = leaveForm.isFullDay 
-      ? schedules 
-      : schedules.filter(s => s.id && leaveForm.sessions.includes(s.id));
-
-    if (selectedSchedules.length === 0) {
-      setLeaveModalPhase('LEAVE_FORM');
-      return; 
-    }
+    let anyOffline = false;
 
     let infoDetail = leaveForm.reason;
     if (leaveForm.type === 'Instruksi Pimpinan') {
       infoDetail = `[Instruksi: ${leaveForm.assigner}] ${leaveForm.reason}`;
     }
 
-    let anyOffline = false;
+    const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const currentDayIndo = daysIndo[d.getDay()];
+    const tanggalFormatStandard = `${dd}/${mm}/${yyyy}`;
 
-    for (const sched of selectedSchedules) {
-      const cleanClass = sched.nama_kelas ? sched.nama_kelas.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "UNK";
-      const cleanMapel = sched.mapel_ke ? sched.mapel_ke.toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "0";
-      const cleanGuru = sched.kode_guru ? sched.kode_guru.toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "UNK";
-      const structuredId = `${dd}${mm}${yyyy}${cleanClass}${cleanMapel}${cleanGuru}`;
-
-      const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-      const currentDayIndo = daysIndo[d.getDay()];
-      const tanggalFormatStandard = `${dd}/${mm}/${yyyy}`;
+    // Jalur A: Pendidik TIDAK memiliki jadwal KBM hari ini (Izin Harian Non-KBM -> Sheet IzinHarian)
+    if (schedules.length === 0) {
+      const cleanGuru = leaveForm.teacherId ? leaveForm.teacherId.toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "UNK";
+      const structuredId = `${dd}${mm}${yyyy}NONKBM${cleanGuru}`;
+      const teacherObj = localCache?.master_guru?.[leaveForm.teacherId];
+      const teacherName = teacherObj?.nama || teacherSearch || "Pendidik";
+      const teacherNip = teacherObj?.nip || "-";
 
       const payload = {
         id_kiriman: structuredId,
+        target_sheet: "IzinHarian",
         is_leave: true,
+        is_non_kbm: true,
+        jam_kbm: 0,
+        kategori: "Izin Harian Non-KBM",
         leave_type: leaveForm.type,
         info_ketidakhadiran: infoDetail,
+        pemberi_instruksi: leaveForm.type === 'Instruksi Pimpinan' ? leaveForm.assigner : '-',
         kegiatan_pembelajaran: "-",
-        pengganti: "N", 
+        pengganti: "N",
         leave_time: timestampStr,
         leave_date_formatted: leaveDateFormatted,
         waktu_absen_asli: timestampStr,
@@ -490,14 +715,23 @@ export default function App() {
         hari_presensi: currentDayIndo,
         client_time: timestampStr,
         is_offline_sync: !isOnline,
-        ruang_belajar: "Ruang Kelas",
+        ruang_belajar: "Non-KBM",
         data_jadwal: {
-          ...sched,
-          teacherName: sched.nama_guru,
-          subject: sched.mata_pelajaran,
-          waktu_mulai: sched.jam_mulai,
-          waktu_selesai: sched.jam_selesai,
-          kode_mapel: sched.kode_mapel,
+          id: structuredId,
+          kode_guru: leaveForm.teacherId,
+          nama_guru: teacherName,
+          nip: teacherNip,
+          teacherName: teacherName,
+          subject: "Izin Harian (0 Jam KBM)",
+          mata_pelajaran: "Izin Harian",
+          nama_kelas: "- (Non-KBM)",
+          jam_ke: "0",
+          mapel_ke: "0",
+          jam_mulai: "-",
+          jam_selesai: "-",
+          waktu_mulai: "-",
+          waktu_selesai: "-",
+          kode_mapel: "NONKBM",
           timestamp: timestampStr,
           tanggal: tanggalFormatStandard,
           hari: currentDayIndo
@@ -524,20 +758,108 @@ export default function App() {
             body: JSON.stringify({ action: 'submit', payload: payload })
           });
           const resData = await response.json();
-          if (resData.status === 'success' || (resData.status === 'error' && resData.message.includes('sudah melakukan presensi'))) {
+          if (resData.status === 'success' || (resData.status === 'error' && resData.message && resData.message.includes('sudah melakukan presensi'))) {
             addToHistory({
               id: structuredId + '_' + Date.now(),
-              nama_kelas: sched.nama_kelas || "Kelas",
-              mapel_ke: sched.mapel_ke,
-              teacherName: sched.nama_guru,
-              subject: sched.mata_pelajaran,
-              waktu_mulai: sched.jam_mulai,
-              waktu_selesai: sched.jam_selesai,
+              nama_kelas: "- (Non-KBM)",
+              mapel_ke: 0,
+              teacherName: teacherName,
+              subject: `Izin Harian: ${leaveForm.type}`,
+              waktu_mulai: "-",
+              waktu_selesai: "-",
               timestamp: resData.data ? resData.data.waktu_absen : timestampStr
             });
-          } else { pushToOffline(); }
+          } else {
+            pushToOffline();
+          }
         } catch {
           pushToOffline();
+        }
+      }
+    } else {
+      // Jalur B: Pendidik MEMILIKI jadwal tatap muka KBM hari ini (Target: AttendanceLogs)
+      const selectedSchedules = leaveForm.isFullDay 
+        ? schedules 
+        : schedules.filter(s => s.id && leaveForm.sessions.includes(s.id));
+
+      if (selectedSchedules.length === 0) {
+        setLeaveModalPhase('LEAVE_FORM');
+        return; 
+      }
+
+      for (const sched of selectedSchedules) {
+        const cleanClass = sched.nama_kelas ? sched.nama_kelas.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "UNK";
+        const cleanMapel = sched.mapel_ke ? sched.mapel_ke.toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "0";
+        const cleanGuru = sched.kode_guru ? sched.kode_guru.toString().replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : "UNK";
+        const structuredId = `${dd}${mm}${yyyy}${cleanClass}${cleanMapel}${cleanGuru}`;
+
+        const payload = {
+          id_kiriman: structuredId,
+          target_sheet: "AttendanceLogs",
+          is_leave: true,
+          leave_type: leaveForm.type,
+          info_ketidakhadiran: infoDetail,
+          kegiatan_pembelajaran: "-",
+          pengganti: "N", 
+          leave_time: timestampStr,
+          leave_date_formatted: leaveDateFormatted,
+          waktu_absen_asli: timestampStr,
+          tanggal_absen_asli: tanggalFormatStandard,
+          hari_absen_asli: currentDayIndo,
+          waktu_presensi: timestampStr,
+          tanggal_presensi: tanggalFormatStandard,
+          hari_presensi: currentDayIndo,
+          client_time: timestampStr,
+          is_offline_sync: !isOnline,
+          ruang_belajar: "Ruang Kelas",
+          data_jadwal: {
+            ...sched,
+            teacherName: sched.nama_guru,
+            subject: sched.mata_pelajaran,
+            waktu_mulai: sched.jam_mulai,
+            waktu_selesai: sched.jam_selesai,
+            kode_mapel: sched.kode_mapel,
+            timestamp: timestampStr,
+            tanggal: tanggalFormatStandard,
+            hari: currentDayIndo
+          }
+        };
+
+        const pushToOffline = () => {
+          anyOffline = true;
+          const queueItem: OfflineQueueItem = { id: structuredId + '_' + Date.now(), payload: payload, timestamp: timestampStr };
+          let currentQueue: OfflineQueueItem[] = [];
+          try { currentQueue = JSON.parse(localStorage.getItem('tapak_offline_queue') || '[]'); } catch {}
+          currentQueue.push(queueItem);
+          localStorage.setItem('tapak_offline_queue', JSON.stringify(currentQueue));
+          setOfflineQueue(currentQueue);
+        };
+
+        if (!isOnline) {
+          pushToOffline();
+        } else {
+          try {
+            const response = await fetch(API_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ action: 'submit', payload: payload })
+            });
+            const resData = await response.json();
+            if (resData.status === 'success' || (resData.status === 'error' && resData.message.includes('sudah melakukan presensi'))) {
+              addToHistory({
+                id: structuredId + '_' + Date.now(),
+                nama_kelas: sched.nama_kelas || "Kelas",
+                mapel_ke: sched.mapel_ke,
+                teacherName: sched.nama_guru,
+                subject: sched.mata_pelajaran,
+                waktu_mulai: sched.jam_mulai,
+                waktu_selesai: sched.jam_selesai,
+                timestamp: resData.data ? resData.data.waktu_absen : timestampStr
+              });
+            } else { pushToOffline(); }
+          } catch {
+            pushToOffline();
+          }
         }
       }
     }
@@ -571,9 +893,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (prevDayRef.current && prevDayRef.current !== currentDay) {
-      setSyncStatus('idle'); 
-      setLocalCache(null);
+    if (prevDayRef.current && prevDayRef.current !== currentDay && currentDay) {
+      // Saat pergantian hari: baca instan jadwal hari baru dari penyimpanan lokal jika sudah ada
+      const cached = localStorage.getItem(`tapak_master_v1_${currentDay}`);
+      if (cached) {
+        try {
+          setLocalCache(JSON.parse(cached));
+          setSyncStatus('success');
+        } catch {
+          setSyncStatus('idle');
+        }
+      } else {
+        setSyncStatus('idle');
+      }
     }
     prevDayRef.current = currentDay;
   }, [currentDay]);
@@ -598,52 +930,10 @@ export default function App() {
 
     const handleOnline = () => {
       setIsOnline(true);
-      // PENTING: Jangan me-reload layar! Seluruh tampilan dan interaksi tetap dipertahankan.
+      // PENTING: Pertahankan seluruh jadwal Senin s/d Jumat di penyimpanan lokal tanpa dihapus!
+      syncWeeklyScheduleInBackground(false);
 
-      // 1. Bersihkan HANYA cache jadwal hari kemarin untuk menghemat memori.
-      // TETAP PERTAHANKAN data presensi lokal ('tapak_offline_queue' dan 'tapak_sent_history')!
-      const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-      const now = new Date();
-      const todayDay = daysOrder[now.getDay()];
-      const tomorrowDay = daysOrder[(now.getDay() + 1) % 7];
-
-      try {
-        const keysToRemove: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('tapak_master_v1_')) {
-            const dayPart = k.replace('tapak_master_v1_', '');
-            if (dayPart !== todayDay && dayPart !== tomorrowDay) {
-              keysToRemove.push(k);
-            }
-          }
-        }
-        keysToRemove.forEach((k) => localStorage.removeItem(k));
-      } catch {}
-
-      // 2. Cek & sinkronkan data jadwal hari ini dan besok di latar belakang (in-place update)
-      fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(todayDay)}`)
-        .then((res) => res.json())
-        .then((resData) => {
-          if (resData.status === 'success' && resData.data) {
-            setLocalCache(resData.data);
-            localStorage.setItem(`tapak_master_v1_${todayDay}`, JSON.stringify(resData.data));
-            setSyncStatus('success');
-
-            // Pra-muat jadwal esok hari
-            fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(tomorrowDay)}`)
-              .then((r) => r.json())
-              .then((tomData) => {
-                if (tomData && tomData.status === 'success' && tomData.data) {
-                  localStorage.setItem(`tapak_master_v1_${tomorrowDay}`, JSON.stringify(tomData.data));
-                }
-              })
-              .catch(() => {});
-          }
-        })
-        .catch(() => {});
-
-      // 3. Deteksi antrean presensi lokal untuk dikirim ke server
+      // Deteksi antrean presensi lokal untuk langsung disinkronkan saat tersambung kembali
       const currentQueueStr = localStorage.getItem('tapak_offline_queue');
       let currentQueue: OfflineQueueItem[] = [];
       try {
@@ -651,7 +941,10 @@ export default function App() {
       } catch {}
 
       if (currentQueue && currentQueue.length > 0) {
+        setOfflineQueue(currentQueue);
         setSyncBannerStatus('syncing');
+        // Picu sinkronisasi segera bahkan jika hanya ada 1 item di antrean
+        autoSyncOfflineData(true);
       } else {
         setSyncBannerStatus('online');
         setTimeout(() => {
@@ -807,8 +1100,9 @@ export default function App() {
     });
   };
 
-  const autoSyncOfflineData = async () => {
-    if (!isOnline || isBackgroundSyncing) return;
+  const autoSyncOfflineData = async (forceSync: boolean = false) => {
+    const actuallyOnline = forceSync || isOnline || (typeof navigator !== 'undefined' ? navigator.onLine : false);
+    if (!actuallyOnline || isBackgroundSyncing) return;
     
     const currentQueueStr = localStorage.getItem('tapak_offline_queue');
     if (!currentQueueStr) return;
@@ -818,39 +1112,199 @@ export default function App() {
     
     if (currentQueue.length === 0) return;
 
+    // Simulasi responsif pada lingkungan uji coba / URL placeholder
+    if (API_URL.includes("ISI_DENGAN")) {
+      setIsBackgroundSyncing(true);
+      setSyncBannerStatus('syncing');
+      const total = currentQueue.length;
+      setSyncProgress({ current: 0, total });
+      
+      for (let i = 0; i < currentQueue.length; i++) {
+        const item = currentQueue[i];
+        const originalTime = item.payload?.waktu_absen_asli || item.timestamp || '07:30';
+        addToHistory({
+          id: item.id,
+          nama_kelas: item.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
+          mapel_ke: item.payload?.data_jadwal?.mapel_ke || 0,
+          teacherName: item.payload?.data_jadwal?.teacherName || item.payload?.nama_guru || "-",
+          subject: item.payload?.data_jadwal?.subject || (item.payload?.is_non_kbm ? `Izin Harian: ${item.payload?.leave_type || 'Izin'}` : '-'),
+          waktu_mulai: item.payload?.data_jadwal?.waktu_mulai || "-",
+          waktu_selesai: item.payload?.data_jadwal?.waktu_selesai || "-",
+          timestamp: originalTime
+        });
+        setSyncProgress({ current: i + 1, total });
+      }
+      localStorage.setItem('tapak_offline_queue', JSON.stringify([]));
+      setOfflineQueue([]);
+      setIsBackgroundSyncing(false);
+      setSyncBannerStatus('success');
+      setTimeout(() => {
+        setSyncProgress(null);
+        setSyncBannerStatus((prev) => (prev === 'success' ? null : prev));
+      }, 3500);
+      return;
+    }
+
     setIsBackgroundSyncing(true);
     setSyncBannerStatus('syncing');
+    const totalItems = currentQueue.length;
+    setSyncProgress({ current: 0, total: totalItems });
+
     let remainingQueue = [...currentQueue];
     let syncedCount = 0;
+    let processedCount = 0;
 
-    for (let i = 0; i < currentQueue.length; i++) {
-      const item = currentQueue[i];
+    // KASUS TUNGGAL: Jika HANYA ADA 1 ITEM di antrean, segera kirim langsung seketika saat tersambung kembali
+    // tanpa menunggu akumulasi batch 3 data.
+    if (currentQueue.length === 1) {
+      const singleItem = currentQueue[0];
       try {
         const response = await fetch(API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'submit', payload: item.payload })
+          body: JSON.stringify({ action: 'submit', payload: singleItem.payload })
         });
         const resData = await response.json();
-        
-        if (resData.status === 'success' || (resData.status === 'error' && resData.message.includes('sudah melakukan presensi'))) {
+        const isSuccess = resData.status === 'success' || 
+          (resData.status === 'error' && (
+            resData.message?.includes('sudah melakukan presensi') ||
+            resData.message?.includes('sudah melakukan pengajuan')
+          ));
+
+        if (isSuccess) {
           syncedCount++;
-          // Waktu presensi dijamin murni waktu asli tombol ditekan (bukan waktu sinkron hari berikutnya)
-          const originalTime = item.payload.waktu_absen_asli || item.timestamp || (resData.data ? resData.data.waktu_absen : '00:00');
-          
+          const originalTime = singleItem.payload?.waktu_absen_asli || singleItem.timestamp || (resData.data ? resData.data.waktu_absen : '00:00');
           addToHistory({
-            id: item.id,
-            nama_kelas: item.payload.data_jadwal.nama_kelas,
-            mapel_ke: item.payload.data_jadwal.mapel_ke,
-            teacherName: item.payload.data_jadwal.teacherName,
-            subject: item.payload.data_jadwal.subject,
-            waktu_mulai: item.payload.data_jadwal.waktu_mulai,
-            waktu_selesai: item.payload.data_jadwal.waktu_selesai,
+            id: singleItem.id,
+            nama_kelas: singleItem.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
+            mapel_ke: singleItem.payload?.data_jadwal?.mapel_ke || 0,
+            teacherName: singleItem.payload?.data_jadwal?.teacherName || singleItem.payload?.nama_guru || "-",
+            subject: singleItem.payload?.data_jadwal?.subject || (singleItem.payload?.is_non_kbm ? `Izin Harian: ${singleItem.payload?.leave_type || 'Izin'}` : '-'),
+            waktu_mulai: singleItem.payload?.data_jadwal?.waktu_mulai || "-",
+            waktu_selesai: singleItem.payload?.data_jadwal?.waktu_selesai || "-",
             timestamp: originalTime
           });
-          remainingQueue = remainingQueue.filter(q => q.id !== item.id);
+          remainingQueue = [];
+          localStorage.setItem('tapak_offline_queue', JSON.stringify([]));
+          setOfflineQueue([]);
         }
       } catch {
+        // Gagal jaringan, data tetap tersimpan di antrean untuk dicoba lagi
+      }
+
+      setSyncProgress({ current: syncedCount, total: totalItems });
+      setIsBackgroundSyncing(false);
+
+      if (syncedCount > 0 && remainingQueue.length === 0) {
+        setSyncBannerStatus('success');
+        setTimeout(() => {
+          setSyncProgress(null);
+          setSyncBannerStatus((prev) => (prev === 'success' ? null : prev));
+        }, 3500);
+      } else {
+        setTimeout(() => setSyncProgress(null), 1500);
+        if (remainingQueue.length === 0) setSyncBannerStatus(null);
+      }
+      return;
+    }
+
+    // KASUS ANTREAN LEBIH BESAR (> 1 item): Gunakan Batch Processing (3 item per request)
+    // untuk menyeimbangkan performa, meminimalkan overhead jaringan & handshake koneksi
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < currentQueue.length; i += BATCH_SIZE) {
+      const batch = currentQueue.slice(i, i + BATCH_SIZE);
+      setSyncProgress({ current: processedCount, total: totalItems });
+      
+      try {
+        // Kirim kelompok 3 item dalam 1 HTTP request
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'batch_submit',
+            items: batch.map(item => ({
+              id: item.id,
+              payload: item.payload,
+              timestamp: item.timestamp
+            }))
+          })
+        });
+
+        const resData = await response.json();
+
+        // Jalur 1: Backend merespons sukses batch_submit
+        if (resData.status === 'success' && Array.isArray(resData.results)) {
+          for (const resItem of resData.results) {
+            const queueItem = batch.find(b => b.id === resItem.id);
+            if (!queueItem) continue;
+
+            const isSuccess = resItem.status === 'success' || 
+              (resItem.status === 'error' && (
+                resItem.message?.includes('sudah melakukan presensi') ||
+                resItem.message?.includes('sudah melakukan pengajuan')
+              ));
+
+            if (isSuccess) {
+              syncedCount++;
+              const originalTime = queueItem.payload?.waktu_absen_asli || queueItem.timestamp || (resItem.data?.waktu_absen || '00:00');
+              
+              addToHistory({
+                id: queueItem.id,
+                nama_kelas: queueItem.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
+                mapel_ke: queueItem.payload?.data_jadwal?.mapel_ke || 0,
+                teacherName: queueItem.payload?.data_jadwal?.teacherName || queueItem.payload?.nama_guru || "-",
+                subject: queueItem.payload?.data_jadwal?.subject || (queueItem.payload?.is_non_kbm ? `Izin Harian: ${queueItem.payload?.leave_type || 'Izin'}` : '-'),
+                waktu_mulai: queueItem.payload?.data_jadwal?.waktu_mulai || "-",
+                waktu_selesai: queueItem.payload?.data_jadwal?.waktu_selesai || "-",
+                timestamp: originalTime
+              });
+              remainingQueue = remainingQueue.filter(q => q.id !== queueItem.id);
+            }
+          }
+
+          processedCount += batch.length;
+          setSyncProgress({ current: Math.min(processedCount, totalItems), total: totalItems });
+
+          // Simpan progres incremental agar jika koneksi putus, batch yang selesai tidak terulang
+          localStorage.setItem('tapak_offline_queue', JSON.stringify(remainingQueue));
+          setOfflineQueue(remainingQueue);
+        } else {
+          // Jalur 2 Fallback: Jika backend lama belum ada batch_submit, proses item batch ini secara berurutan
+          for (const item of batch) {
+            try {
+              const singleRes = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'submit', payload: item.payload })
+              });
+              const singleData = await singleRes.json();
+              if (singleData.status === 'success' || (singleData.status === 'error' && singleData.message?.includes('sudah melakukan presensi'))) {
+                syncedCount++;
+                const originalTime = item.payload?.waktu_absen_asli || item.timestamp || (singleData.data?.waktu_absen || '00:00');
+                
+                addToHistory({
+                  id: item.id,
+                  nama_kelas: item.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
+                  mapel_ke: item.payload?.data_jadwal?.mapel_ke || 0,
+                  teacherName: item.payload?.data_jadwal?.teacherName || item.payload?.nama_guru || "-",
+                  subject: item.payload?.data_jadwal?.subject || (item.payload?.is_non_kbm ? `Izin Harian: ${item.payload?.leave_type || 'Izin'}` : '-'),
+                  waktu_mulai: item.payload?.data_jadwal?.waktu_mulai || "-",
+                  waktu_selesai: item.payload?.data_jadwal?.waktu_selesai || "-",
+                  timestamp: originalTime
+                });
+                remainingQueue = remainingQueue.filter(q => q.id !== item.id);
+              }
+              processedCount++;
+              setSyncProgress({ current: Math.min(processedCount, totalItems), total: totalItems });
+            } catch {
+              break;
+            }
+          }
+          localStorage.setItem('tapak_offline_queue', JSON.stringify(remainingQueue));
+          setOfflineQueue(remainingQueue);
+        }
+      } catch {
+        // Terjadi gangguan jaringan pada batch ini, simpan progres antrean dan hentikan
         break;
       }
     }
@@ -860,38 +1314,124 @@ export default function App() {
     setIsBackgroundSyncing(false);
 
     if (syncedCount > 0 && remainingQueue.length === 0) {
+      setSyncProgress({ current: totalItems, total: totalItems });
       setSyncBannerStatus('success');
       setTimeout(() => {
+        setSyncProgress(null);
         setSyncBannerStatus((prev) => (prev === 'success' ? null : prev));
       }, 3500);
-    } else if (remainingQueue.length === 0) {
-      setSyncBannerStatus(null);
+    } else {
+      setTimeout(() => {
+        setSyncProgress(null);
+      }, 1500);
+      if (remainingQueue.length === 0) {
+        setSyncBannerStatus(null);
+      }
+    }
+  };
+
+  const syncWeeklyScheduleInBackground = async (isManual = false) => {
+    const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const now = new Date();
+    const todayDay = currentDay || daysOrder[now.getDay()];
+
+    if (!isOnline && !API_URL.includes("ISI_DENGAN")) {
+      if (isManual) {
+        setOfflineToast('Mode Luring: Menggunakan jadwal lokal tersimpan');
+        setTimeout(() => setOfflineToast(null), 3000);
+      }
+      return;
+    }
+
+    if (API_URL.includes("ISI_DENGAN")) {
+      const dummyData: LocalCache = {
+        classes: { "SIMULASI-123": { id_kelas: "K-01", nama_kelas: "Kelas VII A", lokasi_ruang: "Ruang 1" } },
+        schedules: { "Kelas VII A": [{ jam_ke: "1-2", mapel_ke: "1", jam_mulai: "07:00", jam_selesai: "23:00", nama_guru: "Drs. Budi Santoso", mata_pelajaran: "Matematika", nip: "123456", kode_guru: "G-01", kode_mapel: "MP-01" }] },
+        master_guru: { "G-01": { nama: "Drs. Budi Santoso", nip: "123456" }, "G-02": { nama: "Siti Aminah, S.Pd", nip: "-" } },
+        master_mapel: { "MP-01": "Matematika", "MP-02": "Bahasa Indonesia" },
+        master_ruangan: { "QR-LAPANGAN": { nama_ruangan: "Lapangan Olahraga", pin: "1234" } } 
+      };
+      setLocalCache(dummyData);
+      localStorage.setItem(`tapak_master_v1_${todayDay}`, JSON.stringify(dummyData));
+      setSyncStatus('success');
+      return;
+    }
+
+    // 1. Coba unduh paket jadwal sepekan penuh (Senin s/d Jumat/Sabtu) via init_week
+    try {
+      const res = await fetch(`${API_URL}?action=init_week`);
+      const resData = await res.json();
+      if (resData.status === 'success' && resData.data && resData.data.schedules_by_day) {
+        const { master_guru, master_mapel, master_ruangan, classes, schedules_by_day, hari_libur } = resData.data;
+        const weekDays = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+        if (hari_libur && Array.isArray(hari_libur)) {
+          localStorage.setItem('tapak_holidays_v1', JSON.stringify(hari_libur));
+        }
+
+        weekDays.forEach(d => {
+          const dayPayload: LocalCache = {
+            classes,
+            master_guru,
+            master_mapel,
+            master_ruangan,
+            schedules: schedules_by_day[d] || {},
+            hari_libur: hari_libur || []
+          };
+          localStorage.setItem(`tapak_master_v1_${d}`, JSON.stringify(dayPayload));
+          if (d === todayDay) {
+            setLocalCache(dayPayload);
+          }
+        });
+
+        setSyncStatus('success');
+        if (isManual) {
+          setSyncBannerStatus('online');
+          setTimeout(() => setSyncBannerStatus(null), 3000);
+        }
+        return;
+      }
+    } catch {}
+
+    // 2. Fallback: Ambil jadwal hari ini secara individual (in-place silent update)
+    try {
+      const resToday = await fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(todayDay)}`);
+      const resTodayData = await resToday.json();
+      if (resTodayData.status === 'success' && resTodayData.data) {
+        if (resTodayData.data.hari_libur && Array.isArray(resTodayData.data.hari_libur)) {
+          localStorage.setItem('tapak_holidays_v1', JSON.stringify(resTodayData.data.hari_libur));
+        }
+        setLocalCache(resTodayData.data);
+        localStorage.setItem(`tapak_master_v1_${todayDay}`, JSON.stringify(resTodayData.data));
+        setSyncStatus('success');
+      }
+    } catch {
+      if (!localCache && !localStorage.getItem(`tapak_master_v1_${todayDay}`)) {
+        setSyncStatus('error');
+      }
+    }
+
+    // 3. Fallback pra-muat hening hari kerja lainnya (Senin s/d Jumat) ke local storage
+    const schoolDays = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
+    for (const d of schoolDays) {
+      if (d !== todayDay && !localStorage.getItem(`tapak_master_v1_${d}`)) {
+        try {
+          const r = await fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(d)}`);
+          const rData = await r.json();
+          if (rData.status === 'success' && rData.data) {
+            localStorage.setItem(`tapak_master_v1_${d}`, JSON.stringify(rData.data));
+          }
+        } catch {}
+      }
+    }
+
+    if (isManual) {
+      setSyncBannerStatus('online');
+      setTimeout(() => setSyncBannerStatus(null), 3000);
     }
   };
 
   const handleManualRefresh = async () => {
-    // 1. Bersihkan HANYA cache jadwal hari kemarin untuk menghemat memori
-    // SANGAT PENTING: Pertahankan data presensi 'tapak_offline_queue' dan 'tapak_sent_history'!
-    const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const now = new Date();
-    const todayDay = daysOrder[now.getDay()];
-    const tomorrowDay = daysOrder[(now.getDay() + 1) % 7];
-
-    try {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('tapak_master_v1_')) {
-          const dayPart = k.replace('tapak_master_v1_', '');
-          if (dayPart !== todayDay && dayPart !== tomorrowDay) {
-            keysToRemove.push(k);
-          }
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-    } catch {}
-
-    // Respon jika mode offline: Tampilkan notifikasi halus bahwa jadwal lokal tetap aktif tanpa galat
     if (!isOnline) {
       setOfflineToast('Mode Luring: Menggunakan jadwal lokal tersimpan');
       setTimeout(() => setOfflineToast(null), 3000);
@@ -902,38 +1442,9 @@ export default function App() {
       return;
     }
 
-    setSyncStatus('syncing');
     try {
-      const res = await fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(todayDay)}`);
-      const resData = await res.json();
-      if (resData.status === 'success' && resData.data) {
-        setLocalCache(resData.data);
-        localStorage.setItem(`tapak_master_v1_${todayDay}`, JSON.stringify(resData.data));
-        setSyncStatus('success');
-
-        // Pra-muat jadwal esok hari di latar belakang
-        fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(tomorrowDay)}`)
-          .then((r) => r.json())
-          .then((tomData) => {
-            if (tomData && tomData.status === 'success' && tomData.data) {
-              localStorage.setItem(`tapak_master_v1_${tomorrowDay}`, JSON.stringify(tomData.data));
-            }
-          })
-          .catch(() => {});
-
-        // Tampilkan banner "Jadwal hari ini telah sinkron"
-        setSyncBannerStatus('online');
-        setTimeout(() => {
-          setSyncBannerStatus((prev) => (prev === 'online' ? null : prev));
-        }, 3500);
-
-        // Jika ada antrean luring, jalankan sinkronisasi
-        autoSyncOfflineData();
-      } else {
-        setSyncStatus('success');
-      }
-    } catch {
-      setSyncStatus('success');
+      await syncWeeklyScheduleInBackground(true);
+      autoSyncOfflineData();
     } finally {
       setTimeout(() => {
         setPullDistance(0);
@@ -986,81 +1497,27 @@ export default function App() {
   }, [isOnline, offlineQueue.length]);
 
   useEffect(() => {
-    if (!currentDay || syncStatus !== 'idle') return;
-    
-    const fetchScheduleLocally = async () => {
-      setSyncStatus('syncing');
-      
-      const cacheKey = `tapak_master_v1_${currentDay}`;
-      const cachedData = localStorage.getItem(cacheKey);
-      
-      if (cachedData) {
-        try { 
-          setLocalCache(JSON.parse(cachedData)); 
-        } catch {
-          localStorage.removeItem(cacheKey);
-        }
-      }
+    if (!currentDay) return;
 
-      if (API_URL.includes("ISI_DENGAN")) {
-        setTimeout(() => {
-          const dummyData: LocalCache = {
-            classes: { "SIMULASI-123": { id_kelas: "K-01", nama_kelas: "Kelas VII A", lokasi_ruang: "Ruang 1" } },
-            schedules: { "Kelas VII A": [{ jam_ke: "1-2", mapel_ke: "1", jam_mulai: "07:00", jam_selesai: "23:00", nama_guru: "Drs. Budi Santoso", mata_pelajaran: "Matematika", nip: "123456", kode_guru: "G-01", kode_mapel: "MP-01" }] },
-            master_guru: { "G-01": { nama: "Drs. Budi Santoso", nip: "123456" }, "G-02": { nama: "Siti Aminah, S.Pd", nip: "-" } },
-            master_mapel: { "MP-01": "Matematika", "MP-02": "Bahasa Indonesia" },
-            master_ruangan: { "QR-LAPANGAN": { nama_ruangan: "Lapangan Olahraga", pin: "1234" } } 
-          };
-          setLocalCache(dummyData);
-          localStorage.setItem(cacheKey, JSON.stringify(dummyData));
-          setSyncStatus('success');
-        }, 1000);
-        return;
-      }
+    const cacheKey = `tapak_master_v1_${currentDay}`;
+    const cachedData = localStorage.getItem(cacheKey);
 
-      if (!isOnline) {
-        if (cachedData) {
-          setSyncStatus('success'); 
-        } else {
-          setSyncStatus('error');
-        }
-        return;
-      }
-
+    if (cachedData) {
       try {
-        const response = await fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(currentDay)}`);
-        const resData = await response.json();
-        
-        if (resData.status === 'success') {
-          setLocalCache(resData.data);
-          localStorage.setItem(cacheKey, JSON.stringify(resData.data));
-          setSyncStatus('success');
-
-          // Otomatis pra-muat (pre-cache) jadwal hari esok untuk persiapan luring (hari ini + besok)
-          const daysOrder = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-          const currentIdx = daysOrder.indexOf(currentDay);
-          if (currentIdx !== -1) {
-            const tomorrowDay = daysOrder[(currentIdx + 1) % 7];
-            const tomorrowCacheKey = `tapak_master_v1_${tomorrowDay}`;
-            fetch(`${API_URL}?action=init&hariIni=${encodeURIComponent(tomorrowDay)}`)
-              .then((res) => res.json())
-              .then((tomData) => {
-                if (tomData && tomData.status === 'success' && tomData.data) {
-                  localStorage.setItem(tomorrowCacheKey, JSON.stringify(tomData.data));
-                }
-              })
-              .catch(() => {});
-          }
-        } else {
-          setSyncStatus(cachedData ? 'success' : 'error');
-        }
+        setLocalCache(JSON.parse(cachedData));
+        setSyncStatus('success');
       } catch {
-        setSyncStatus(cachedData ? 'success' : 'error');
+        localStorage.removeItem(cacheKey);
       }
-    };
+    } else {
+      setSyncStatus('syncing');
+    }
 
-    fetchScheduleLocally();
-  }, [currentDay, syncStatus, isOnline]);
+    // Jalankan sinkronisasi sepekan hening di latar belakang
+    if (isOnline || API_URL.includes("ISI_DENGAN")) {
+      syncWeeklyScheduleInBackground(false);
+    }
+  }, [currentDay, isOnline]);
 
   const processScheduleMatch = (namaKelasStr: string, idKelasStr: string, lokasiRuangAsli: string, isRuangKhusus = false) => {
     const schedules = localCache?.schedules ? localCache.schedules[namaKelasStr.trim()] : undefined;
@@ -1094,6 +1551,29 @@ export default function App() {
 
     const ruangBelajarStr = isRuangKhusus && dynamicRoomData ? dynamicRoomData.nama_ruangan : "Ruang Kelas";
     const lokasiRuangTampil = isRuangKhusus && dynamicRoomData ? dynamicRoomData.nama_ruangan : lokasiRuangAsli;
+
+    // Cek apakah waktu KBM saat ini atau sesi aktif sedang dalam kegiatan sekolah (non-efektif)
+    const now = new Date();
+    let matchedHoliday: HolidayEvent | null = null;
+    if (todayHolidayEvents && todayHolidayEvents.length > 0) {
+      for (const h of todayHolidayEvents) {
+        const overlap = checkScheduleHolidayOverlap(
+          activeSched ? { jam_mulai: activeSched.jam_mulai, jam_selesai: activeSched.jam_selesai } : {},
+          h,
+          now
+        );
+        if (overlap.isOverlap) {
+          matchedHoliday = h;
+          break;
+        }
+      }
+    }
+
+    if (matchedHoliday) {
+      setMatchedSchoolEvent(matchedHoliday);
+      setModalPhase('SCHOOL_EVENT');
+      return;
+    }
 
     if (activeSched) {
       setIsManualMode(false);
@@ -1465,6 +1945,7 @@ export default function App() {
     setSelectedPenggantiName(''); 
     setSelectedPenggantiId(''); 
     setPenggantiError(false);
+    setMatchedSchoolEvent(null);
   };
 
   return (
@@ -1869,6 +2350,63 @@ export default function App() {
               )}
             </AnimatePresence>
 
+            {/* SPANDUK KEGIATAN SEKOLAH AKTIF SAAT INI */}
+            {currentActiveEvent && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="w-full max-w-[420px] mb-3.5 p-3.5 rounded-2xl border border-amber-500/40 bg-gradient-to-br from-amber-950/80 via-slate-900/90 to-amber-950/70 shadow-[0_6px_25px_rgba(245,158,11,0.2)] text-left backdrop-blur-md"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300 mt-0.5 flex-shrink-0 border border-amber-500/30">
+                    <CalendarIcon className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black tracking-wider uppercase text-amber-300">
+                        Kegiatan Sekolah Berlangsung
+                      </span>
+                      <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 border border-amber-400/40 font-mono">
+                        {currentActiveEvent.jam_mulai && currentActiveEvent.jam_selesai
+                          ? `${currentActiveEvent.jam_mulai} - ${currentActiveEvent.jam_selesai} WIB`
+                          : 'Seharian Penuh'}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-white mt-1 leading-snug">
+                      {currentActiveEvent.keterangan || 'KBM Non-Efektif'}
+                    </h3>
+                    <p className="text-[11px] text-amber-200/90 mt-1.5 leading-relaxed">
+                      Sesi KBM pada rentang jam ini dinonaktifkan dan otomatis dikecualikan dari total target mengajar. Anda tidak perlu melakukan scan QR pada jam ini.
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* AGENDA KEGIATAN SEKOLAH HARI INI (DI LUAR JAM AKTIF) */}
+            {!currentActiveEvent && todayHolidayEvents.length > 0 && (
+              <div className="w-full max-w-[420px] mb-3 p-3 rounded-xl border border-indigo-500/30 bg-slate-900/70 shadow-sm text-left backdrop-blur-sm">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 flex-shrink-0">
+                    <CalendarIcon className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-indigo-300">Agenda Hari Ini</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-200 font-mono">
+                        {todayHolidayEvents[0].jam_mulai && todayHolidayEvents[0].jam_selesai
+                          ? `${todayHolidayEvents[0].jam_mulai} - ${todayHolidayEvents[0].jam_selesai}`
+                          : 'Seharian'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-semibold text-slate-200 truncate mt-0.5">
+                      {todayHolidayEvents[0].keterangan} (KBM non-efektif)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Main Clock Display */}
             <span className="text-[2.25rem] sm:text-[2.65rem] font-mono font-bold tracking-widest drop-shadow-md tabular-nums leading-tight" style={{ color: '#6e9fe5' }}>
               {time || '00:00:00 WIB'}
@@ -2073,8 +2611,9 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm pointer-events-none flex items-center justify-center"
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center"
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
             />
           )}
         </AnimatePresence>
@@ -2087,7 +2626,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
+              transition={{ duration: 0 }}
               className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col"
             >
               {/* Background Layer: Layar Kamera Penuh */}
@@ -2105,14 +2644,11 @@ export default function App() {
                     transition={{ duration: 0.35, ease: 'easeOut' }}
                     className="absolute inset-0 z-20 bg-[#080c17] flex flex-col items-center justify-center pointer-events-none"
                   >
-                    <motion.div
-                      animate={{ scale: [1, 1.15, 0.94, 1], opacity: [0.75, 1, 0.85, 0.75] }}
-                      transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }}
-                      className="relative flex items-center justify-center mb-3"
-                    >
-                      <div className="absolute inset-0 bg-cyan-400/25 rounded-full blur-xl animate-pulse"></div>
-                      <CameraIcon className="w-12 h-12 text-cyan-300 drop-shadow-[0_0_12px_rgba(34,211,238,0.7)]" />
-                    </motion.div>
+                    <div className="relative flex items-center justify-center mb-3">
+                      <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl">
+                        <CameraIcon className="w-10 h-10 text-cyan-300" />
+                      </div>
+                    </div>
                     <span className="text-sm font-bold text-cyan-200 tracking-wider uppercase animate-pulse">
                       Menyiapkan Kamera...
                     </span>
@@ -2131,82 +2667,65 @@ export default function App() {
                   <motion.button 
                     whileTap={{ scale: 0.9 }}
                     onClick={handleCloseModal} 
-                    className="p-2.5 rounded-full text-white bg-black/40 hover:bg-black/60 backdrop-blur-md transition-colors shadow-lg border border-white/10 cursor-pointer"
+                    className="p-2.5 rounded-full text-white bg-slate-900/80 hover:bg-slate-900 transition-colors border border-white/10 cursor-pointer"
                   >
                     <ArrowLeftIcon className="w-6 h-6" />
                   </motion.button>
                 </div>
 
-                {/* Reticle Pembidik dengan Animasi Pulse & Border Flash */}
+                {/* Reticle Pembidik dengan Animasi Ringan & Garis Laser CSS */}
                 <div className="flex-1 flex items-center justify-center relative pointer-events-none">
                   <motion.div 
-                    initial={{ scale: 0.92, opacity: 0.5 }}
+                    initial={{ scale: 0.95, opacity: 0.7 }}
                     animate={
                       isScanSuccess 
-                        ? { scale: [1, 1.08, 1], filter: "drop-shadow(0 0 16px rgba(52, 211, 153, 0.85))" }
-                        : { scale: 1, opacity: 1, filter: "none" }
+                        ? { scale: [1, 1.06, 1], opacity: 1 }
+                        : { scale: 1, opacity: 1 }
                     }
-                    transition={
-                      isScanSuccess
-                        ? { duration: 0.45, ease: "easeOut" }
-                        : { type: "spring", stiffness: 260, damping: 20 }
-                    }
+                    transition={{ duration: 0.35, ease: "easeOut" }}
                     className="relative w-[70vw] max-w-[280px] aspect-square"
                   >
-                    {/* Efek Border Flash Mengembang (Outward Pulse Ring) */}
+                    {/* Garis Pemindai QR CSS Border-Based Ringan (Bebas Efek Glow/Bayangan GPU) */}
+                    {!isScanSuccess && (
+                      <div className="absolute inset-x-2 top-2 border-b-2 border-cyan-400 animate-laser-scan pointer-events-none" />
+                    )}
+
+                    {/* Efek Flash Mengembang saat Sukses */}
                     {isScanSuccess && (
                       <motion.div 
-                        initial={{ opacity: 0, scale: 0.92 }}
-                        animate={{ opacity: [0, 0.85, 0], scale: [0.92, 1.12, 1.06] }}
-                        transition={{ duration: 0.45, ease: "easeOut" }}
-                        className="absolute -inset-2 rounded-[2rem] border-2 border-emerald-400 shadow-[0_0_25px_rgba(52,211,153,0.8)] pointer-events-none"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: [0, 0.75, 0], scale: [0.95, 1.08, 1.04] }}
+                        transition={{ duration: 0.35, ease: "easeOut" }}
+                        className="absolute -inset-1.5 rounded-[2rem] border-2 border-emerald-400 pointer-events-none"
                       />
                     )}
 
-                    {/* Efek Flash Shimmer Layar Dalam */}
-                    {isScanSuccess && (
-                      <motion.div 
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: [0, 0.35, 0.12] }}
-                        transition={{ duration: 0.45 }}
-                        className="absolute inset-0 bg-emerald-500/25 rounded-3xl border border-emerald-400/40 pointer-events-none"
-                      />
-                    )}
-
-                    {/* 4 Sudut Pembidik (Border Flash dari Putih ke Hijau Neon Berkilau) */}
-                    <div className={`absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 rounded-tl-[1.5rem] transition-all duration-300 ${
-                      isScanSuccess 
-                        ? 'border-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.95)]' 
-                        : 'border-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                    {/* 4 Sudut Pembidik (Garis Border Bersih Bebas Filter Komposit) */}
+                    <div className={`absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 rounded-tl-[1.5rem] transition-colors duration-200 ${
+                      isScanSuccess ? 'border-emerald-400' : 'border-white'
                     }`}></div>
                     
-                    <div className={`absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 rounded-tr-[1.5rem] transition-all duration-300 ${
-                      isScanSuccess 
-                        ? 'border-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.95)]' 
-                        : 'border-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                    <div className={`absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 rounded-tr-[1.5rem] transition-colors duration-200 ${
+                      isScanSuccess ? 'border-emerald-400' : 'border-white'
                     }`}></div>
                     
-                    <div className={`absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 rounded-bl-[1.5rem] transition-all duration-300 ${
-                      isScanSuccess 
-                        ? 'border-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.95)]' 
-                        : 'border-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                    <div className={`absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 rounded-bl-[1.5rem] transition-colors duration-200 ${
+                      isScanSuccess ? 'border-emerald-400' : 'border-white'
                     }`}></div>
                     
-                    <div className={`absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 rounded-br-[1.5rem] transition-all duration-300 ${
-                      isScanSuccess 
-                        ? 'border-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.95)]' 
-                        : 'border-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]'
+                    <div className={`absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 rounded-br-[1.5rem] transition-colors duration-200 ${
+                      isScanSuccess ? 'border-emerald-400' : 'border-white'
                     }`}></div>
 
-                    {/* Lencana Centang Sukses Pop-In di Tengah Frame */}
+                    {/* Lencana Centang Sukses Pop-In di Tengah Frame (Bebas Backdrop Blur) */}
                     {isScanSuccess && (
                       <motion.div 
                         initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: [0, 1.2, 1], opacity: 1 }}
-                        transition={{ duration: 0.35, ease: "backOut" }}
+                        animate={{ scale: [0, 1.15, 1], opacity: 1 }}
+                        transition={{ duration: 0.3, ease: "backOut" }}
                         className="absolute inset-0 flex items-center justify-center text-emerald-400 pointer-events-none"
                       >
-                        <div className="p-3.5 bg-emerald-500/25 rounded-full border border-emerald-400/60 shadow-[0_0_25px_rgba(52,211,153,0.7)] backdrop-blur-sm">
+                        <div className="p-3.5 bg-slate-900/95 rounded-full border border-emerald-400">
                           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
                           </svg>
@@ -2264,16 +2783,16 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md" 
-              style={{ backgroundColor: 'rgba(5, 8, 18, 0.85)' }}
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4" 
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
             >
               <motion.div 
                 key="modal-popup-card"
-                initial={{ scale: 0.95, opacity: 0, y: 12 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.96, opacity: 0, y: 8 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0 }}
                 className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col" 
                 style={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }}
               >
@@ -2353,7 +2872,7 @@ export default function App() {
                   {/* 2. SELECT CLASS FOR SPECIAL ROOM */}
                   {modalPhase === 'SELECT_CLASS' && (
                     <div className="flex flex-col items-center w-full">
-                      <div className="p-3 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full mb-3 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                      <div className="p-3 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-full mb-3 shadow-md">
                         <LocationIcon className="w-8 h-8" />
                       </div>
                       <h3 className="text-xl font-black text-slate-200 mb-1 uppercase tracking-wide">{dynamicRoomData?.nama_ruangan}</h3>
@@ -2361,55 +2880,67 @@ export default function App() {
                         Sistem mendeteksi Anda di ruang khusus. Pilih kelas mana yang sedang Anda bawa ke ruangan ini.
                       </p>
                       
-                      {(() => {
-                        const uniqueClasses = Array.from(new Set(Object.values(localCache?.classes || {}).map(c => c.nama_kelas)));
-                        
-                        const groupedClasses: Record<string, { num: number; classes: string[] }> = {};
-                        uniqueClasses.forEach(className => {
-                          const upperName = className.toUpperCase();
-                          let gradeKey = "Kelas Lainnya";
-                          let gradeNum = 99; 
-                          
-                          if (upperName.includes("VIII")) { gradeKey = "Tingkat 8 (VIII)"; gradeNum = 8; }
-                          else if (upperName.includes("VII")) { gradeKey = "Tingkat 7 (VII)"; gradeNum = 7; }
-                          else if (upperName.includes("IX")) { gradeKey = "Tingkat 9 (IX)"; gradeNum = 9; }
-                          
-                          if (!groupedClasses[gradeKey]) {
-                            groupedClasses[gradeKey] = { num: gradeNum, classes: [] };
-                          }
-                          groupedClasses[gradeKey].classes.push(className);
-                        });
-
-                        const sortedGroups = Object.keys(groupedClasses).sort((a, b) => groupedClasses[a].num - groupedClasses[b].num);
-
-                        return (
-                          <div className="w-full max-h-72 overflow-y-auto pr-2 custom-scrollbar">
-                            {sortedGroups.map(groupKey => {
-                              const sortedClasses = groupedClasses[groupKey].classes.sort((a, b) => a.localeCompare(b));
-                              
-                              return (
-                                <div key={groupKey} className="mb-4">
-                                  <h4 className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest border-b border-slate-700/50 pb-1">{groupKey}</h4>
-                                  <div className="grid grid-cols-3 gap-2">
-                                    {sortedClasses.map(namaKelas => (
-                                      <motion.button 
-                                        key={namaKelas} 
-                                        whileTap={{ scale: 0.94 }}
-                                        onClick={() => handleDynamicClassSelect(namaKelas)} 
-                                        className="p-2 rounded-xl bg-slate-800 border border-slate-700 hover:border-blue-500 hover:bg-slate-700 active:bg-blue-600 transition-all flex justify-center items-center shadow-md cursor-pointer"
-                                      >
-                                        <span className="text-xs font-bold text-slate-200 truncate w-full text-center">
-                                          {namaKelas.replace(/Kelas\s/i, '')}
-                                        </span>
-                                      </motion.button>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                      <div className="w-full max-h-72 overflow-y-auto pr-2 custom-scrollbar">
+                        {sortedClassGroups.map(group => (
+                          <div key={group.groupKey} className="mb-4">
+                            <h4 className="text-[10px] font-black text-slate-400 mb-2 uppercase tracking-widest border-b border-slate-700/50 pb-1">{group.groupKey}</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              {group.classes.map(namaKelas => (
+                                <button 
+                                  key={namaKelas} 
+                                  onClick={() => handleDynamicClassSelect(namaKelas)} 
+                                  className="p-2 rounded-xl bg-slate-800 border border-slate-700 hover:border-blue-500 hover:bg-slate-700 active:bg-blue-600 transition-colors flex justify-center items-center shadow-md cursor-pointer"
+                                >
+                                  <span className="text-xs font-bold text-slate-200 truncate w-full text-center">
+                                    {namaKelas.replace(/Kelas\s/i, '')}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        );
-                      })()}
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2.5 KEGIATAN SEKOLAH (NON-EFEKTIF KBM) */}
+                  {modalPhase === 'SCHOOL_EVENT' && (
+                    <div className="flex flex-col items-center text-center w-full">
+                      <div className="p-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-full mb-3 shadow-lg shadow-indigo-900/20">
+                        <CalendarIcon className="w-12 h-12" />
+                      </div>
+                      <span className="text-[10px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-2">
+                        Kegiatan Sekolah
+                      </span>
+                      <h3 className="text-xl font-black text-white mb-2 leading-snug">
+                        {matchedSchoolEvent?.keterangan || 'KBM Non-Efektif'}
+                      </h3>
+                      <div className="text-[11px] text-slate-300 bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 mb-6 w-full leading-relaxed shadow-inner text-left space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
+                          <span className="text-slate-400 font-medium">Rentang Waktu:</span>
+                          <span className="font-bold text-cyan-300">
+                            {matchedSchoolEvent?.jam_mulai && matchedSchoolEvent?.jam_selesai
+                              ? `${matchedSchoolEvent.jam_mulai} - ${matchedSchoolEvent.jam_selesai} WIB`
+                              : 'Seharian Penuh'}
+                          </span>
+                        </div>
+                        <p className="text-slate-300">
+                          Sesi KBM pada jam ini dinonaktifkan untuk kegiatan resmi sekolah dan <strong>otomatis dikecualikan</strong> dari total target mengajar Anda.
+                        </p>
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10.5px] font-medium">
+                          <CheckCircleIcon className="w-4 h-4 flex-shrink-0" />
+                          <span>Tidak dihitung alpa dan tidak perlu melakukan scan QR.</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2.5 w-full">
+                        <motion.button 
+                          whileTap={{ scale: 0.95 }}
+                          onClick={handleCloseModal}
+                          className="w-full py-3.5 rounded-xl font-bold text-sm shadow-md text-white bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 cursor-pointer"
+                        >
+                          Mengerti & Kembali ke Beranda
+                        </motion.button>
+                      </div>
                     </div>
                   )}
 
@@ -2658,23 +3189,30 @@ export default function App() {
                               {isPenggantiDropdownOpen && (
                                 <>
                                   <div className="fixed inset-0 z-10" onClick={() => setIsPenggantiDropdownOpen(false)}></div>
-                                  <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-slate-800 border border-slate-700 rounded-xl max-h-40 overflow-y-auto shadow-2xl">
-                                    {teacherList.filter(t => t.nama.toLowerCase().includes(penggantiSearch.toLowerCase())).length > 0 ? (
-                                      teacherList.filter(t => t.nama.toLowerCase().includes(penggantiSearch.toLowerCase())).map(t => (
-                                        <div
-                                          key={t.id}
-                                          onClick={() => {
-                                            setSelectedPenggantiName(t.nama);
-                                            setSelectedPenggantiId(t.id);
-                                            setPenggantiSearch(t.nama);
-                                            setIsPenggantiDropdownOpen(false);
-                                            setPenggantiError(false);
-                                          }}
-                                          className="p-3 text-sm text-slate-200 hover:bg-slate-700 hover:text-blue-400 cursor-pointer border-b border-slate-700/50 last:border-0 transition-colors"
-                                        >
-                                          <span className="block font-semibold">{t.nama}</span>
-                                        </div>
-                                      ))
+                                  <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-slate-800 border border-slate-700 rounded-xl max-h-48 overflow-y-auto shadow-2xl">
+                                    {displayedPenggantiTeachers.length > 0 ? (
+                                      <>
+                                        {displayedPenggantiTeachers.map(t => (
+                                          <div
+                                            key={t.id}
+                                            onClick={() => {
+                                              setSelectedPenggantiName(t.nama);
+                                              setSelectedPenggantiId(t.id);
+                                              setPenggantiSearch(t.nama);
+                                              setIsPenggantiDropdownOpen(false);
+                                              setPenggantiError(false);
+                                            }}
+                                            className="p-3 text-sm text-slate-200 hover:bg-slate-700 hover:text-blue-400 cursor-pointer border-b border-slate-700/50 last:border-0 transition-colors"
+                                          >
+                                            <span className="block font-semibold">{t.nama}</span>
+                                          </div>
+                                        ))}
+                                        {filteredPenggantiTeachers.length > 15 && (
+                                          <div className="p-2 text-center text-[10px] text-slate-400 bg-slate-900/80 border-t border-slate-700">
+                                            Menampilkan 15 dari {filteredPenggantiTeachers.length} guru. Ketik lebih spesifik...
+                                          </div>
+                                        )}
+                                      </>
                                     ) : (
                                       <div className="p-3 text-sm text-slate-500 italic text-center">Nama tidak ditemukan</div>
                                     )}
@@ -2849,14 +3387,15 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-md" 
-              style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)' }}
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center p-4" 
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
             >
               <motion.div 
-                initial={{ scale: 0.92, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.92, opacity: 0 }}
-                transition={{ type: "spring", duration: 0.3 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0 }}
                 className="w-full max-w-md max-h-[85vh] flex flex-col border border-slate-200 rounded-2xl shadow-2xl bg-slate-50 overflow-hidden"
               >
                 
@@ -2918,16 +3457,16 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md" 
-              style={{ backgroundColor: 'rgba(5, 8, 18, 0.85)' }}
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4" 
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
             >
               <motion.div 
                 key="leave-modal-card"
-                initial={{ scale: 0.95, opacity: 0, y: 12 }}
-                animate={{ scale: 1, opacity: 1, y: 0 }}
-                exit={{ scale: 0.96, opacity: 0, y: 8 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0 }}
                 className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]" 
                 style={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }}
               >
@@ -2969,21 +3508,28 @@ export default function App() {
                           <>
                             <div className="fixed inset-0 z-10" onClick={() => setIsTeacherDropdownOpen(false)}></div>
                             <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-slate-800 border border-slate-700 rounded-xl max-h-48 overflow-y-auto shadow-2xl">
-                              {teacherList.filter(t => t.nama.toLowerCase().includes(teacherSearch.toLowerCase())).length > 0 ? (
-                                teacherList.filter(t => t.nama.toLowerCase().includes(teacherSearch.toLowerCase())).map(t => (
-                                  <div 
-                                    key={t.id} 
-                                    onClick={() => {
-                                      setLeaveForm({ ...leaveForm, teacherId: t.id, sessions: [] });
-                                      setTeacherSearch(t.nama);
-                                      setIsTeacherDropdownOpen(false);
-                                    }}
-                                    className="p-3 text-sm text-slate-200 hover:bg-slate-700 hover:text-amber-400 cursor-pointer border-b border-slate-700/50 last:border-0 transition-colors"
-                                  >
-                                    <span className="block font-semibold">{t.nama}</span>
-                                    <span className="text-[10px] text-slate-400">NIP: {t.nip !== '-' ? t.nip : 'Non-ASN'}</span>
-                                  </div>
-                                ))
+                              {displayedLeaveTeachers.length > 0 ? (
+                                <>
+                                  {displayedLeaveTeachers.map(t => (
+                                    <div 
+                                      key={t.id} 
+                                      onClick={() => {
+                                        setLeaveForm({ ...leaveForm, teacherId: t.id, sessions: [] });
+                                        setTeacherSearch(t.nama);
+                                        setIsTeacherDropdownOpen(false);
+                                      }}
+                                      className="p-3 text-sm text-slate-200 hover:bg-slate-700 hover:text-amber-400 cursor-pointer border-b border-slate-700/50 last:border-0 transition-colors"
+                                    >
+                                      <span className="block font-semibold">{t.nama}</span>
+                                      <span className="text-[10px] text-slate-400">NIP: {t.nip !== '-' ? t.nip : 'Non-ASN'}</span>
+                                    </div>
+                                  ))}
+                                  {filteredLeaveTeachers.length > 15 && (
+                                    <div className="p-2 text-center text-[10px] text-slate-400 bg-slate-900/80 border-t border-slate-700">
+                                      Menampilkan 15 dari {filteredLeaveTeachers.length} guru. Ketik lebih spesifik...
+                                    </div>
+                                  )}
+                                </>
                               ) : (
                                 <div className="p-3 text-sm text-slate-500 italic text-center">Nama tidak ditemukan</div>
                               )}
@@ -3014,55 +3560,88 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="pt-2">
-                        <label className="flex items-center justify-between p-3 border border-slate-700 rounded-xl cursor-pointer transition-colors" style={{ backgroundColor: leaveForm.isFullDay ? '#1e293b' : '#0f172a' }}>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold text-slate-200">Izin Seharian Penuh</span>
-                            <span className="text-[10px] text-slate-400">Apabila izin seharian, silakan aktifkan.</span>
-                          </div>
-                          <div className="relative inline-flex items-center">
-                            <input 
-                              type="checkbox" 
-                              checked={leaveForm.isFullDay} 
-                              onChange={(e) => setLeaveForm({ ...leaveForm, isFullDay: e.target.checked, sessions: [] })} 
-                              className="sr-only peer" 
-                            />
-                            <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                          </div>
-                        </label>
-                      </div>
-
-                      {leaveForm.teacherId && (
-                        <div className={`mt-4 p-3 rounded-xl border border-blue-500/30 bg-blue-900/10 transition-all duration-300 ${leaveForm.isFullDay ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
-                          <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-2">Centang Sesi Yang Ditinggalkan:</p>
-                          <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                            {getTeacherSchedules(leaveForm.teacherId).length > 0 ? (
-                              getTeacherSchedules(leaveForm.teacherId).map(sched => (
-                                <label 
-                                  key={sched.id} 
-                                  className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-800/50 transition-colors" 
-                                  style={{ backgroundColor: sched.id && leaveForm.sessions.includes(sched.id) ? '#1e3a5f' : 'transparent' }}
-                                >
-                                  <input 
-                                    type="checkbox" 
-                                    checked={sched.id ? leaveForm.sessions.includes(sched.id) : false} 
-                                    onChange={() => sched.id && handleLeaveSessionToggle(sched.id)} 
-                                    className="mt-1" 
-                                  />
-                                  <div className="flex flex-col w-full">
-                                    <div className="flex justify-between items-center w-full">
-                                      <span className="text-xs font-bold text-slate-200">{sched.nama_kelas}</span>
-                                      <span className="text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Jam {sched.jam_ke}</span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 mt-0.5">{sched.mata_pelajaran} • {sched.jam_mulai} - {sched.jam_selesai}</span>
-                                  </div>
-                                </label>
-                              ))
-                            ) : (
-                              <p className="text-xs text-slate-400 italic p-2 text-center border border-dashed border-slate-700 rounded-lg">Tidak ada jadwal tercatat pada hari ini.</p>
-                            )}
-                          </div>
+                      {/* Opsi Izin Seharian Penuh (Hanya jika guru memiliki jadwal jam pelajaran) */}
+                      {(!leaveForm.teacherId || currentTeacherSchedules.length > 0) && (
+                        <div className="pt-2">
+                          <label className="flex items-center justify-between p-3 border border-slate-700 rounded-xl cursor-pointer transition-colors" style={{ backgroundColor: leaveForm.isFullDay ? '#1e293b' : '#0f172a' }}>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-200">Izin Seharian Penuh</span>
+                              <span className="text-[10px] text-slate-400">Apabila izin seluruh jam mengajar hari ini, silakan aktifkan.</span>
+                            </div>
+                            <div className="relative inline-flex items-center">
+                              <input 
+                                type="checkbox" 
+                                checked={leaveForm.isFullDay} 
+                                onChange={(e) => setLeaveForm({ ...leaveForm, isFullDay: e.target.checked, sessions: [] })} 
+                                className="sr-only peer" 
+                              />
+                              <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                            </div>
+                          </label>
                         </div>
+                      )}
+
+                      {/* Sesi KBM atau Panel Informasi Izin Harian Non-KBM */}
+                      {leaveForm.teacherId && (
+                        currentTeacherSchedules.length > 0 ? (
+                          <div className={`mt-4 p-3 rounded-xl border border-blue-500/30 bg-blue-900/10 transition-all duration-300 ${leaveForm.isFullDay ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
+                            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-2">Centang Sesi Yang Ditinggalkan:</p>
+                            <div className="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                              {currentTeacherSchedules.map(sched => {
+                                const isEvent = sched.isKegiatanSekolah;
+                                return (
+                                  <label 
+                                    key={sched.id} 
+                                    className={`flex items-start gap-3 p-2.5 rounded-lg border transition-colors ${
+                                      isEvent
+                                        ? 'border-indigo-500/30 bg-indigo-950/20 opacity-80 cursor-default'
+                                        : 'border-slate-700 cursor-pointer hover:bg-slate-800/50'
+                                    }`} 
+                                    style={{ backgroundColor: !isEvent && sched.id && leaveForm.sessions.includes(sched.id) ? '#1e3a5f' : undefined }}
+                                  >
+                                    <input 
+                                      type="checkbox" 
+                                      disabled={isEvent}
+                                      checked={isEvent ? false : (sched.id ? leaveForm.sessions.includes(sched.id) : false)} 
+                                      onChange={() => !isEvent && sched.id && handleLeaveSessionToggle(sched.id)} 
+                                      className="mt-1" 
+                                    />
+                                    <div className="flex flex-col w-full">
+                                      <div className="flex justify-between items-center w-full">
+                                        <span className="text-xs font-bold text-slate-200">{sched.nama_kelas}</span>
+                                        {isEvent ? (
+                                          <span className="text-[9px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded font-medium">
+                                            Kegiatan Sekolah (Dikecualikan)
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Jam {sched.jam_ke}</span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-slate-400 mt-0.5">{sched.mata_pelajaran} • {sched.jam_mulai} - {sched.jam_selesai}</span>
+                                      {isEvent && (
+                                        <span className="text-[9.5px] text-indigo-200/80 mt-1 italic">
+                                          {sched.kegiatanName || 'KBM Non-Efektif'} • Jam ini bebas presensi & tidak dihitung alpa
+                                        </span>
+                                      )}
+                                    </div>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3.5 p-3.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 shadow-sm flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2 text-amber-400">
+                              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span className="text-xs font-bold uppercase tracking-wider">Izin Harian (Non-KBM)</span>
+                            </div>
+                            <p className="text-[11px] text-slate-300 leading-relaxed">
+                              Pendidik tidak memiliki jadwal tatap muka kelas hari ini. Pengajuan akan dicatat ke sheet <strong className="text-amber-300 font-mono">IzinHarian</strong> untuk rekap presensi harian tanpa mengurangi persentase jam KBM (0 jam mengajar).
+                            </p>
+                          </div>
+                        )
                       )}
 
                       <div key={leaveForm.type} className="flex flex-col gap-3 pt-2">
@@ -3139,7 +3718,10 @@ export default function App() {
                       <motion.button 
                         whileTap={{ scale: 0.96 }}
                         onClick={submitLeaveRequest} 
-                        disabled={!leaveForm.teacherId || (!leaveForm.isFullDay && leaveForm.sessions.length === 0) || (leaveForm.isFullDay && getTeacherSchedules(leaveForm.teacherId).length === 0)} 
+                        disabled={
+                          !leaveForm.teacherId || 
+                          (currentTeacherSchedules.length > 0 && !leaveForm.isFullDay && leaveForm.sessions.length === 0)
+                        } 
                         className="mt-4 w-full py-3.5 rounded-xl font-bold text-sm shadow-lg text-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer" 
                         style={{ background: 'linear-gradient(90deg, #d97706, #b45309)' }}
                       >
@@ -3199,16 +3781,16 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-4 backdrop-blur-md" 
-              style={{ backgroundColor: 'rgba(5, 8, 18, 0.85)' }}
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-4" 
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
             >
               <motion.div 
                 key="history-modal-card"
-                initial={{ y: 50, opacity: 0, scale: 0.98 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                exit={{ y: 30, opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0 }}
                 className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]" 
                 style={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }}
               >
@@ -3226,30 +3808,100 @@ export default function App() {
                   
                   {/* Antrean Luring */}
                   <div className="mb-6">
-                    <h3 className="text-[10px] font-bold text-slate-400 mb-3 uppercase tracking-wider flex items-center gap-1">
-                      <CloudSyncIcon className="w-4 h-4 text-amber-500" /> Antrean Luring ({offlineQueue.length})
-                    </h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        <CloudSyncIcon className="w-4 h-4 text-amber-500" /> Antrean Luring ({offlineQueue.length})
+                      </h3>
+                      {isOnline && offlineQueue.length > 0 && !isBackgroundSyncing && (
+                        <button
+                          onClick={() => autoSyncOfflineData()}
+                          className="text-[10px] font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                        >
+                          Sinkronkan Sekarang
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Real-Time Sync Progress Indicator (Batch Processing Feedback) */}
+                    {(isBackgroundSyncing || syncProgress) && (
+                      <div className="mb-3 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex flex-col gap-2 shadow-sm">
+                        <div className="flex items-center justify-between text-xs font-bold text-amber-300">
+                          <span className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                            Syncing {syncProgress ? `${syncProgress.current} of ${syncProgress.total}` : '...'}
+                          </span>
+                          <span className="font-mono text-[11px] text-amber-300 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/30">
+                            {syncProgress && syncProgress.total > 0
+                              ? `${Math.round((syncProgress.current / syncProgress.total) * 100)}%`
+                              : '0%'}
+                          </span>
+                        </div>
+                        {/* Percentage Progress Bar */}
+                        <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-amber-500/20">
+                          <div
+                            className="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-300 h-full rounded-full transition-all duration-300 ease-out"
+                            style={{
+                              width: `${
+                                syncProgress && syncProgress.total > 0
+                                  ? Math.max(8, Math.min(100, Math.round((syncProgress.current / syncProgress.total) * 100)))
+                                  : 12
+                              }%`
+                            }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-amber-200/80 leading-tight">
+                          Mengirim antrean luring dalam batch per 3 sesi ke server...
+                        </p>
+                      </div>
+                    )}
+
                     {offlineQueue.length === 0 ? (
                       <div className="p-3 bg-slate-800/30 border border-slate-700/30 rounded-xl text-center">
                         <span className="text-[10px] text-slate-500">Tidak ada antrean tertunda.</span>
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {offlineQueue.map((item, idx) => (
-                          <div key={idx} className="flex flex-col gap-1.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl shadow-sm">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-xs font-bold text-amber-100">{item.payload.data_jadwal.teacherName}</p>
-                                <p className="text-[11px] text-amber-200/90 font-medium">{item.payload.data_jadwal.subject}</p>
+                        {offlineQueue.map((item, idx) => {
+                          const isLeave = item.payload?.is_leave || item.payload?.is_non_kbm || item.payload?.target_sheet === 'IzinHarian';
+                          const leaveType = item.payload?.leave_type || (item.payload?.is_non_kbm ? 'Izin Harian' : 'Izin');
+                          const jamKe = item.payload?.data_jadwal?.jam_ke;
+                          const namaKelas = item.payload?.data_jadwal?.nama_kelas || (item.payload?.is_non_kbm ? 'Non-KBM' : 'Kelas');
+                          const subject = item.payload?.data_jadwal?.subject || (isLeave ? `Pengajuan: ${leaveType}` : '-');
+                          const teacherName = item.payload?.data_jadwal?.teacherName || item.payload?.nama_guru || '-';
+
+                          return (
+                            <div key={idx} className="flex flex-col gap-1.5 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl shadow-sm">
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wide ${
+                                      isLeave ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    }`}>
+                                      {isLeave ? `Izin (${leaveType})` : 'Hadir KBM'}
+                                    </span>
+                                    {jamKe && (
+                                      <span className="text-[9px] font-bold text-amber-200/90 bg-slate-800/90 px-1.5 py-0.5 rounded border border-slate-700/70">
+                                        Jam Ke {jamKe}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs font-bold text-amber-100 truncate">{teacherName}</p>
+                                  <p className="text-[11px] text-amber-200/90 font-medium truncate">{subject}</p>
+                                </div>
+                                <span className="text-[9px] font-mono bg-amber-500/20 text-amber-400 px-2 py-1 rounded-md border border-amber-500/30 flex-shrink-0 mt-0.5">
+                                  {item.timestamp}
+                                </span>
                               </div>
-                              <span className="text-[9px] font-mono bg-amber-500/20 text-amber-400 px-2 py-1 rounded-md border border-amber-500/30 flex-shrink-0 mt-0.5">{item.timestamp}</span>
+                              <div className="flex items-center justify-between text-[10px] text-amber-200/70 border-t border-amber-500/20 pt-2 mt-0.5">
+                                <span className="font-semibold text-amber-300 truncate max-w-[140px]">{namaKelas}</span>
+                                <span className="flex items-center gap-1 font-mono bg-amber-900/40 px-1.5 py-0.5 rounded flex-shrink-0">
+                                  <ClockIcon className="w-2.5 h-2.5"/> 
+                                  {item.payload?.data_jadwal?.waktu_mulai ? `${item.payload.data_jadwal.waktu_mulai} - ${item.payload.data_jadwal.waktu_selesai} WIB` : item.timestamp}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[10px] text-amber-200/70 border-t border-amber-500/20 pt-2 mt-0.5">
-                              <span className="font-semibold text-amber-300">{item.payload.data_jadwal.nama_kelas}</span>
-                              <span className="flex items-center gap-1 font-mono bg-amber-900/40 px-1.5 py-0.5 rounded"><ClockIcon className="w-2.5 h-2.5"/> {item.payload.data_jadwal.waktu_mulai} - {item.payload.data_jadwal.waktu_selesai} WIB</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -3298,14 +3950,17 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: { duration: 0.2, ease: "easeInOut" } }}
-              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0 }}
+              className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
               onClick={() => setIsIosInstallModalOpen(false)}
             >
               <motion.div
-                initial={{ y: 50, opacity: 0, scale: 0.96 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                exit={{ y: 30, opacity: 0, scale: 0.96, transition: { duration: 0.2, ease: "easeInOut" } }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0 }}
                 onClick={(e) => e.stopPropagation()}
                 className="w-full max-w-sm rounded-3xl bg-slate-900 border border-cyan-500/30 p-5 shadow-2xl space-y-4"
               >

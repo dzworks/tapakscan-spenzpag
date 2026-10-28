@@ -1,6 +1,6 @@
 // TAPAK Service Worker - SMP Negeri 1 Pagaden
 // Versi Cache-First penuh untuk mode luring total sejak instalasi pertama
-const CACHE_NAME = 'tapak-pwa-v2.6.2';
+const CACHE_NAME = 'tapak-pwa-v2.6.4';
 const CORE_PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -51,8 +51,8 @@ self.addEventListener('install', (event) => {
   );
 });
 
-const CURRENT_APP_VERSION = 'v2.6.2';
-const CURRENT_BUILD_NUMBER = 'Build 20261025.1';
+const CURRENT_APP_VERSION = 'v2.6.4';
+const CURRENT_BUILD_NUMBER = 'Build 20261026.1';
 
 // Mengirimkan notifikasi ke aplikasi client saat skipWaiting() dan pembersihan cache berhasil
 const notifyClientsUpdateSuccess = async () => {

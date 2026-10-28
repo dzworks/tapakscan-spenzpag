@@ -19,6 +19,23 @@
   animation: pulseRing 3s infinite ease-in-out; 
 }
 
+@keyframes qrLaserScan {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, calc(70vw - 16px), 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+@media (min-width: 400px) {
+  @keyframes qrLaserScan {
+    0% { transform: translate3d(0, 0, 0); }
+    50% { transform: translate3d(0, 264px, 0); }
+    100% { transform: translate3d(0, 0, 0); }
+  }
+}
+.animate-laser-scan {
+  animation: qrLaserScan 2.4s ease-in-out infinite;
+  will-change: transform;
+}
+
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-6px); }

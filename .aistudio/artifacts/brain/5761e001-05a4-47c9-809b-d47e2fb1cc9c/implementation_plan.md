@@ -1,103 +1,103 @@
-# Optimasi Performa Modal Perizinan dan Alur Pemindaian QR Code untuk HP Spesifikasi Rendah
+# Penambahan Detail Jenis Kehadiran & Jam Ke pada Kartu Riwayat serta Penguncian Waktu Awal Scan QR
 
-Rencana optimasi komprehensif untuk meningkatkan performa, kecepatan buka-tutup, dan kelancaran interaksi pada **Modal Perizinan Pendidik** serta **Seluruh Alur Pemindai QR Code** (mulai dari kamera pemindai, dialog verifikasi/pilihan kelas, formulir presensi, hingga konfirmasi integritas) agar tetap estetis, responsif, dan bebas lag pada smartphone berdaya rendah/menengah.
+Rencana implementasi penambahan informasi **Jenis Kehadiran** (Hadir, Sakit, Izin, Tugas) dan nomor **Jam Ke** pada kartu riwayat, dengan tetap mempertahankan skema warna **Hijau (Sudah Terkirim)** dan **Oranye (Antrean Luring)**, serta pembaruan logika pencatatan waktu presensi agar mencatat **waktu awal saat QR Code berhasil dipindai oleh kamera** alih-alih waktu saat menekan tombol konfirmasi integritas.
 
 ---
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Ringkasan keputusan yang telah dikonfirmasi pengguna:
-> 1. **Cakupan Optimasi QR Code**: Menjangkau **seluruh alur**, mulai dari antarmuka pemindai kamera aktif, dialog penanganan jadwal/ruang, formulir presensi, hingga popup konfirmasi integritas akademik.
-> 2. **Animasi Garis Pemindai (Laser Scan)**: Menggunakan garis laser berbasis CSS transform ringan **tanpa filter drop-shadow/glow berat** yang biasanya membebani GPU saat rendering video stream kamera 60 FPS.
-> 3. **Latar Belakang Popup Modal**: Mengganti seluruh efek `backdrop-blur` dengan **latar gelap pekat beraksen solid (`rgba(5, 8, 18, 0.95)` / `bg-slate-950/95`)** yang estetik, fokus, dan bebas lag.
-> 4. **Modal Perizinan**: Latar gelap pekat tanpa blur, transisi instan, memoization kalkulasi jadwal (`useMemo`), serta pembatasan dropdown nama guru maksimal 15 hasil.
+> **Jaminan Keamanan & Kompatibilitas Format Waktu (Zero Breaking Change)**:
+> - **Format Waktu Tidak Berubah**: Format waktu tetap **`HH:mm`** (string teks dua digit jam dan menit, contoh `"07:20"`).
+> - **Struktur Payload Tetap Sama**: Seluruh properti (`waktu_presensi`, `client_time`, `waktu_absen_asli`) dikirim dengan nama field dan tipe data yang persis sama.
+> - **Kolom Spreadsheet Tetap Sama**: Data tetap masuk ke kolom **Timestamp (Kolom A / Kolom 1)** di sheet `AttendanceLogs` dan `IzinHarian`.
+> - **Satu-satunya Perbedaan**: HANYA *momen pengambilan string waktu* dipindahkan dari saat menekan tombol "Ya" menjadi saat kamera sukses membaca QR Code di kelas. Formula rekapitulasi KBM di Google Sheets dijamin **100% aman dan tidak terdistorsi**.
 
 ---
 
 ### 1. Overview & Core Concept
 
-- **Tantangan Utama**:
-  Perangkat smartphone kelas pemula sering mengalami lag (penurunan FPS drastis, keyboard lambat merespons, dan kamera tersendat) saat:
-  1. Merender filter grafis berat `backdrop-filter: blur(...)` pada modal overlay.
-  2. Menjalankan animasi loop dengan filter CSS `drop-shadow` di atas elemen `<video>` kamera WebRTC yang aktif.
-  3. Memproses array puluhan guru atau seluruh jadwal sekolah secara berulang pada setiap render dan pengetikan karakter.
-- **Tujuan Optimasi**:
-  Menghilangkan bottleneck grafis (GPU) dan komputasi (CPU) tanpa mengurangi estetika antarmuka modern bernuansa *dark mode* yang telah dirancang.
+- **Permasalahan Saat Ini**:
+  1. Pada kartu riwayat *Sudah Terkirim*, pengguna hanya melihat Nama Guru, Mata Pelajaran, Stempel Jam, Nama Kelas, dan Rentang Jam WIB, tanpa label penanda apakah presensi tersebut merupakan kehadiran mengajar KBM reguler atau perizinan, serta belum ada nomor jam pelajaran (*Jam Ke*).
+  2. Waktu kehadiran saat ini dihitung saat fungsi `submitData()` dieksekusi (yaitu saat tombol konfirmasi "Ya, Saya Guru Bersangkutan" ditekan). Jika guru membaca detail jadwal, mengetik kegiatan KBM, atau membaca dialog konfirmasi integritas selama 3–5 menit, jam presensi bergeser maju dari waktu kedatangan asli saat memindai QR.
+- **Solusi yang Diterapkan**:
+  1. Menambahkan kolom dan badge `jenis_kehadiran` (`Hadir KBM`, `Sakit`, `Izin`, `Tugas`) dan `jam_ke` (contoh: *Jam Ke 1-2*) pada kartu riwayat hari ini, sebaris di atas nama pendidik.
+  2. Menyimpan stempel waktu tepat saat `onScanSuccess` kamera terpicu ke dalam state `initialScanTime` dan membawanya ke payload pengiriman server (`client_time`, `waktu_presensi`, `waktu_absen_asli`) serta penyimpanan riwayat lokal.
 
 ---
 
 ### 2. User Experience & Visual Design
 
-- **Layar Pemindai Kamera (Viewfinder)**:
-  - Kotak bidik QR tetap tampak modern dengan sudut aksen rounded dan garis batas presisi.
-  - Garis laser pemindai bergerak halus naik-turun menggunakan transisi gradien warna biru-cyan elegan tanpa filter `drop-shadow` ganda yang berat.
-  - Saat QR berhasil terdeteksi, lencana sukses muncul instan dengan aksen hijau emerald tanpa efek `backdrop-blur`.
-- **Dialog Hasil Scan & Formulir Presensi**:
-  - Latar overlay gelap pekat elegan (`rgba(5, 8, 18, 0.95)`), menonjolkan kartu dialog di tengah layar dengan kontras tinggi.
-  - Dialog tampil instan tanpa jeda animasi pegas (*spring physics*), membuat alur presensi terasa secepat kilat.
-- **Pencarian Nama Guru (Modal Izin & Guru Pengganti / Inval)**:
-  - Dropdown dibatasi maksimal 15 rekomendasi teratas yang cocok dengan ketikan pengguna.
-  - Terdapat catatan informatif di bawah daftar jika hasil melebihi 15 item: *"Menampilkan 15 dari {total} guru. Ketik lebih spesifik..."*
-- **Dialog Konfirmasi Integritas**:
-  - Menggunakan overlay gelap pekat solid beraksen malam tanpa blur, dengan kartu peringatan tegas dan tombol konfirmasi yang langsung responsif saat disentuh.
+- **Kartu Sudah Terkirim (Tema Hijau / Emerald)**:
+  - Latar kartu tetap `bg-emerald-500/10 border-emerald-500/20` dengan teks emerald.
+  - Di baris teratas (sebelum nama guru), terdapat barisan badge kompak:
+    - **Badge Jenis Kehadiran**: Badge hijau lembut beraksen emerald `bg-emerald-500/20 text-emerald-300 border border-emerald-500/30` dengan teks "Hadir KBM" (atau "Sakit", "Izin", "Tugas").
+    - **Badge Jam Ke**: Badge elegan `bg-slate-800/90 text-emerald-200/90 border border-emerald-500/20` dengan teks "Jam Ke 1-2".
+  - Di sebelah kanan: Stempel waktu dengan ikon centang sukses hijau `07:20`.
+  - Nama Guru, Mata Pelajaran, Kelas, dan rentang jam pelajaran WIB tetap tertata rapi.
+
+- **Kartu Antrean Luring (Tema Oranye / Amber)**:
+  - Latar kartu tetap `bg-amber-500/10 border-amber-500/20` dengan teks amber.
+  - Memiliki susunan badge yang seirama: Badge jenis kehadiran oranye `bg-amber-500/30 text-amber-300 border border-amber-500/40` dan badge Jam Ke `bg-slate-800/90 text-amber-200/90`.
+
+- **Pencatatan Waktu Scan QR**:
+  - Saat kamera membaca QR di kelas pada jam `07:15`, sistem langsung mengunci waktu `07:15`.
+  - Guru dapat dengan tenang mengisi kegiatan pembelajaran dan membaca dialog integritas akademik tanpa khawatir jam kedatangannya bertambah terlambat.
 
 ---
 
 ### 3. Key Product Decisions & Trade-Offs
 
-- **Penggantian CSS Filter Blur dengan Latar Solid Gelap**:
-  - *Keputusan*: Mengeliminasi `backdrop-blur-md` dan `backdrop-blur-sm` di seluruh modal QR dan modal perizinan, digantikan dengan warna `rgba(5, 8, 18, 0.95)`.
-  - *Alasan*: Menghilangkan proses compositing offscreen buffer yang sangat boros daya GPU pada chipset entry-level.
-- **Penyederhanaan Laser Pemindai Kamera**:
-  - *Keputusan*: Menggunakan garis gradien linier ramping (`bg-gradient-to-r from-transparent via-cyan-400 to-transparent`) dengan animasi CSS transform murni, meniadakan filter `drop-shadow-[0_0_14px_...]`.
-  - *Alasan*: Decoding video kamera 30–60 FPS membutuhkan alokasi memori grafis tinggi. Menghilangkan filter bayangan pada overlay video langsung menstabilkan frame rate kamera.
-- **Memoization Komputasi Berat di Sisi Client**:
-  - *Keputusan*: Membungkus `getTeacherSchedules`, `groupedClasses` (untuk ruang khusus), serta pencarian nama guru pengganti dalam `useMemo`.
-  - *Alasan*: Mencegah loop berulang ratusan data jadwal sekolah pada setiap ketikan karakter atau interaksi input.
+- **Penempatan Sebaris di Atas Nama Guru**:
+  - *Keputusan*: Meletakkan badge status dan jam ke di baris paling atas kartu, sejajar secara vertikal dengan stempel waktu scan di pojok kanan.
+  - *Alasan*: Memberikan hierarki visual yang jelas — pembaca langsung mengetahui status dan jam sesi sebelum membaca nama guru dan mapel.
+- **Konsistensi Tipe Data HistoryItem**:
+  - *Keputusan*: Memperluas interface `HistoryItem` dengan properti opsional `jam_ke?: string` dan `jenis_kehadiran?: string`.
+  - *Alasan*: Menjamin *type safety* di TypeScript dan kompatibilitas mundur (*backward compatibility*) dengan riwayat presensi yang sudah tersimpan di `localStorage` sebelumnya.
+- **Stempel Waktu Awal Scan (Immutable Scan Time)**:
+  - *Keputusan*: Menangkap `scanTimestamp = HH:mm` pada fungsi `onScanSuccess` dan menyimpannya di objek `ScanResultState`.
+  - *Alasan*: Mencerminkan integritas waktu kehadiran yang sejati (waktu guru benar-benar berdiri di depan QR kelas) tanpa mengubah format payload string `HH:mm`.
 
 ---
 
-### 4. Technical Architecture & Implementation Details
+### 4. Technical Architecture & Component Mapping
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        ALUR PEMINDAI QR CODE                           │
+│                        ALUR PENCATATAN WAKTU SCAN                      │
 ├────────────────────────────────┬───────────────────────────────────────┤
-│ 1. Antarmuka Kamera Pemindai   │ - Animasi laser CSS transform murni   │
-│    (Viewfinder Video Stream)   │ - Tanpa drop-shadow filter ganda      │
-│                                │ - Badge sukses bebas backdrop-blur    │
+│ 1. Kamera Mendeteksi QR        │ - onScanSuccess(token)                │
+│                                │ - Kunci scanTime = HH:mm (contoh 07:15│
+│                                │ - Simpan scanTime ke ScanResultState  │
 ├────────────────────────────────┼───────────────────────────────────────┤
-│ 2. Dialog Hasil Scan & Ruang   │ - Latar overlay: rgba(5, 8, 18, 0.95) │
-│    (PIN, Pilih Kelas, Event)   │ - Memoize groupedClasses ruang khusus │
-│                                │ - Tampilan transisi instan            │
+│ 2. Form & Konfirmasi           │ - Guru mengisi form kegiatan          │
+│                                │ - Guru menekan konfirmasi integritas  │
 ├────────────────────────────────┼───────────────────────────────────────┤
-│ 3. Formulir Presensi & Inval   │ - Dropdown Guru Pengganti max 15 item │
-│                                │ - Input kegiatan pembelajaran lancar  │
-├────────────────────────────────┼───────────────────────────────────────┤
-│ 4. Konfirmasi Integritas       │ - Latar gelap solid tanpa blur        │
-│                                │ - Kartu konfirmasi responsif instan   │
+│ 3. Submit Data & Riwayat       │ - Format tetap string "HH:mm"         │
+│                                │ - Kirim scanTime ke API Google Sheets │
+│                                │ - Simpan scanTime ke HistoryItem      │
+│                                │ - Masuk kolom A (Timestamp) di Sheet  │
 └────────────────────────────────┴───────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        MODAL PERIZINAN PENDIDIK                        │
-├────────────────────────────────┬───────────────────────────────────────┤
-│ 1. Container & Backdrop        │ - Latar gelap pekat tanpa blur        │
-│                                │ - Transisi instan (tanpa spring)      │
-├────────────────────────────────┼───────────────────────────────────────┤
-│ 2. Pencarian & Dropdown Guru   │ - Filter dibatasi maksimal 15 hasil   │
-│                                │ - Footer info hasil pencarian         │
-├────────────────────────────────┼───────────────────────────────────────┤
-│ 3. Logika Jadwal Pendidik      │ - useMemo(currentTeacherSchedules)    │
-│                                │ - Cek overlap kegiatan sekolah instan │
-└────────────────────────────────┴───────────────────────────────────────┘
+│                     STRUKTUR KARTU RIWAYAT HARI INI                    │
+├────────────────────────────────────────────────────────────────────────┤
+│ ┌────────────────────────────────────────────────────────────────────┐ │
+│ │ [HADIR KBM]  [Jam Ke 1-2]                      (✓) 07:15           │ │
+│ │ Nama Guru: Dzulfikri Almutawadli, S.Pd.                            │ │
+│ │ Mapel: Pendidikan Pancasila dan Kewarganegaraan                    │ │
+│ │ ────────────────────────────────────────────────────────────────── │ │
+│ │ Kelas: VII-A                                     07:00 - 09:00 WIB │ │
+│ └────────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### File yang Dimodifikasi:
-- `src/App.tsx`:
-  1. **Viewfinder Kamera QR**: Penyesuaian garis laser scan dan badge centang sukses.
-  2. **Backdrop Modal Popup QR**: Mengubah kelas `backdrop-blur-md` menjadi solid gelap, serta transisi instan.
-  3. **Dropdown Guru Pengganti**: Menambahkan limit `.slice(0, 15)` dan footer informasi.
-  4. **Pilihan Kelas Ruang Khusus**: Mengoptimalkan pengelompokan kelas dengan memoization.
-  5. **Backdrop Konfirmasi Integritas**: Menghapus `backdrop-blur-md`.
-  6. **Modal Formulir Perizinan**: Menghapus `backdrop-blur-md`, menerapkan `useMemo` pada jadwal pendidik, membatasi dropdown guru 15 item, dan transisi instan.
+#### Komponen dan Berkas yang Dimodifikasi:
+1. `src/App.tsx`:
+   - **Interface `HistoryItem`**: Tambahkan `jam_ke?: string` dan `jenis_kehadiran?: string`.
+   - **Interface `ScanResultState`**: Tambahkan `scan_time?: string`.
+   - **Fungsi `onScanSuccess` & `processScheduleMatch`**: Ambil dan simpan `scan_time` saat QR terdeteksi (format tetap `"HH:mm"`).
+   - **Fungsi `submitData`**: Gunakan `scan_time` yang telah dikunci sebagai nilai untuk `client_time`, `waktu_presensi`, dan `waktu_absen_asli`.
+   - **Fungsi `submitLeaveRequest`**: Simpan `jenis_kehadiran` (Sakit, Izin, Tugas) dan `jam_ke` ke dalam riwayat.
+   - **Rendering `sentHistory.map`**: Tampilkan badge `jenis_kehadiran` (Hadir/Sakit/Izin/Tugas) dan `jam_ke` dengan aksen tema hijau emerald di atas nama guru.
+   - **Rendering `offlineQueue.map`**: Tampilkan badge `jenis_kehadiran` dan `jam_ke` dengan aksen tema oranye amber.

@@ -3,7 +3,7 @@
  * TAPAK - Tata Kelola Presensi Akademik & KBM
  * Backend Google Apps Script (Code.gs)
  * ============================================================================
- * Versi: v2.6.4 (Pembaruan: Penanganan Kegiatan Sekolah & Hari Libur Parsial/Penuh Sheet "HariLibur")
+ * Versi: v2.6.5 (Pembaruan: Penanganan Kegiatan Sekolah, Batch Sync, Info Tooltip & Presensi Luring)
  * 
  * CATATAN INTEGRASI:
  * - Seluruh logika asli presensi tatap muka dan sesi KBM pada sheet "AttendanceLogs"

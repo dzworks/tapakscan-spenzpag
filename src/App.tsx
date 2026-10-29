@@ -175,6 +175,12 @@ const CalendarIcon = ({ className = "w-6 h-6" }: { className?: string }) => (
   </svg>
 );
 
+const InfoIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
 // Audio Chime Synthesizer
 const playSuccessChime = () => {
   try {
@@ -370,6 +376,7 @@ interface ScanResultState {
   waktu_mulai: string;
   waktu_selesai: string;
   nextTeacher: { nama: string; mapel: string } | null;
+  scan_time?: string;
   timestamp?: string;
   tanggal?: string;
   hari?: string;
@@ -391,11 +398,13 @@ interface HistoryItem {
   waktu_mulai: string;
   waktu_selesai: string;
   timestamp: string;
+  jam_ke?: string;
+  jenis_kehadiran?: string;
 }
 
 // Versi Aplikasi & Stempel Build Terpadu
-export const APP_VERSION = 'v2.6.4';
-export const BUILD_NUMBER = 'Build 20261026.1';
+export const APP_VERSION = 'v2.6.5';
+export const BUILD_NUMBER = 'Build 20261028.1';
 
 export default function App() {
   const [time, setTime] = useState('');
@@ -483,6 +492,7 @@ export default function App() {
 
   const [scanResult, setScanResult] = useState<ScanResultState | null>(null);
   const [scannedToken, setScannedToken] = useState('');
+  const [initialScanTime, setInitialScanTime] = useState('');
   const [isScanSuccess, setIsScanSuccess] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   
@@ -504,6 +514,7 @@ export default function App() {
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [sentHistory, setSentHistory] = useState<HistoryItem[]>([]);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [showOfflineInfoTooltip, setShowOfflineInfoTooltip] = useState(false);
   const [syncBannerStatus, setSyncBannerStatus] = useState<'syncing' | 'success' | 'online' | null>(null);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number } | null>(null);
 
@@ -763,6 +774,8 @@ export default function App() {
               id: structuredId + '_' + Date.now(),
               nama_kelas: "- (Non-KBM)",
               mapel_ke: 0,
+              jam_ke: "-",
+              jenis_kehadiran: leaveForm.type,
               teacherName: teacherName,
               subject: `Izin Harian: ${leaveForm.type}`,
               waktu_mulai: "-",
@@ -850,6 +863,8 @@ export default function App() {
                 id: structuredId + '_' + Date.now(),
                 nama_kelas: sched.nama_kelas || "Kelas",
                 mapel_ke: sched.mapel_ke,
+                jam_ke: sched.jam_ke || "-",
+                jenis_kehadiran: leaveForm.type,
                 teacherName: sched.nama_guru,
                 subject: sched.mata_pelajaran,
                 waktu_mulai: sched.jam_mulai,
@@ -1126,6 +1141,8 @@ export default function App() {
           id: item.id,
           nama_kelas: item.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
           mapel_ke: item.payload?.data_jadwal?.mapel_ke || 0,
+          jam_ke: item.payload?.data_jadwal?.jam_ke || "-",
+          jenis_kehadiran: item.payload?.is_leave || item.payload?.is_non_kbm ? (item.payload?.leave_type || 'Izin') : 'Hadir',
           teacherName: item.payload?.data_jadwal?.teacherName || item.payload?.nama_guru || "-",
           subject: item.payload?.data_jadwal?.subject || (item.payload?.is_non_kbm ? `Izin Harian: ${item.payload?.leave_type || 'Izin'}` : '-'),
           waktu_mulai: item.payload?.data_jadwal?.waktu_mulai || "-",
@@ -1178,6 +1195,8 @@ export default function App() {
             id: singleItem.id,
             nama_kelas: singleItem.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
             mapel_ke: singleItem.payload?.data_jadwal?.mapel_ke || 0,
+            jam_ke: singleItem.payload?.data_jadwal?.jam_ke || "-",
+            jenis_kehadiran: singleItem.payload?.is_leave || singleItem.payload?.is_non_kbm ? (singleItem.payload?.leave_type || 'Izin') : 'Hadir',
             teacherName: singleItem.payload?.data_jadwal?.teacherName || singleItem.payload?.nama_guru || "-",
             subject: singleItem.payload?.data_jadwal?.subject || (singleItem.payload?.is_non_kbm ? `Izin Harian: ${singleItem.payload?.leave_type || 'Izin'}` : '-'),
             waktu_mulai: singleItem.payload?.data_jadwal?.waktu_mulai || "-",
@@ -1252,6 +1271,8 @@ export default function App() {
                 id: queueItem.id,
                 nama_kelas: queueItem.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
                 mapel_ke: queueItem.payload?.data_jadwal?.mapel_ke || 0,
+                jam_ke: queueItem.payload?.data_jadwal?.jam_ke || "-",
+                jenis_kehadiran: queueItem.payload?.is_leave || queueItem.payload?.is_non_kbm ? (queueItem.payload?.leave_type || 'Izin') : 'Hadir',
                 teacherName: queueItem.payload?.data_jadwal?.teacherName || queueItem.payload?.nama_guru || "-",
                 subject: queueItem.payload?.data_jadwal?.subject || (queueItem.payload?.is_non_kbm ? `Izin Harian: ${queueItem.payload?.leave_type || 'Izin'}` : '-'),
                 waktu_mulai: queueItem.payload?.data_jadwal?.waktu_mulai || "-",
@@ -1286,6 +1307,8 @@ export default function App() {
                   id: item.id,
                   nama_kelas: item.payload?.data_jadwal?.nama_kelas || "- (Non-KBM)",
                   mapel_ke: item.payload?.data_jadwal?.mapel_ke || 0,
+                  jam_ke: item.payload?.data_jadwal?.jam_ke || "-",
+                  jenis_kehadiran: item.payload?.is_leave || item.payload?.is_non_kbm ? (item.payload?.leave_type || 'Izin') : 'Hadir',
                   teacherName: item.payload?.data_jadwal?.teacherName || item.payload?.nama_guru || "-",
                   subject: item.payload?.data_jadwal?.subject || (item.payload?.is_non_kbm ? `Izin Harian: ${item.payload?.leave_type || 'Izin'}` : '-'),
                   waktu_mulai: item.payload?.data_jadwal?.waktu_mulai || "-",
@@ -1519,7 +1542,7 @@ export default function App() {
     }
   }, [currentDay, isOnline]);
 
-  const processScheduleMatch = (namaKelasStr: string, idKelasStr: string, lokasiRuangAsli: string, isRuangKhusus = false) => {
+  const processScheduleMatch = (namaKelasStr: string, idKelasStr: string, lokasiRuangAsli: string, isRuangKhusus = false, scanTimeOverride?: string) => {
     const schedules = localCache?.schedules ? localCache.schedules[namaKelasStr.trim()] : undefined;
     let activeSched: ScheduleItem | null = null;
     let nextSched: ScheduleItem | null = null;
@@ -1575,6 +1598,10 @@ export default function App() {
       return;
     }
 
+    const _nowD = new Date();
+    const fallbackScanTime = String(_nowD.getHours()).padStart(2, '0') + ':' + String(_nowD.getMinutes()).padStart(2, '0');
+    const lockedScanTime = scanTimeOverride || initialScanTime || fallbackScanTime;
+
     if (activeSched) {
       setIsManualMode(false);
       setScanResult({
@@ -1591,7 +1618,8 @@ export default function App() {
         subject: activeSched.mata_pelajaran,
         waktu_mulai: activeSched.jam_mulai, 
         waktu_selesai: activeSched.jam_selesai,
-        nextTeacher: nextSched ? { nama: nextSched.nama_guru, mapel: nextSched.mata_pelajaran } : null
+        nextTeacher: nextSched ? { nama: nextSched.nama_guru, mapel: nextSched.mata_pelajaran } : null,
+        scan_time: lockedScanTime
       });
       setModalPhase('FORM');
     } else {
@@ -1603,7 +1631,8 @@ export default function App() {
         nama_kelas: namaKelasStr, 
         lokasi_ruang: lokasiRuangTampil,
         ruang_belajar: ruangBelajarStr,
-        jam_ke: "-", mapel_ke: "-", kode_guru: "-", kode_mapel: "-", teacherName: "-", nip: "-", subject: "-", waktu_mulai: "-", waktu_selesai: "-", nextTeacher: null
+        jam_ke: "-", mapel_ke: "-", kode_guru: "-", kode_mapel: "-", teacherName: "-", nip: "-", subject: "-", waktu_mulai: "-", waktu_selesai: "-", nextTeacher: null,
+        scan_time: lockedScanTime
       });
       setModalPhase('NO_SCHEDULE');
     }
@@ -1611,6 +1640,9 @@ export default function App() {
 
   const handleQrMatch = (token: string) => {
     setScannedToken(token);
+    const _nowScan = new Date();
+    const scanTimeStr = String(_nowScan.getHours()).padStart(2, '0') + ':' + String(_nowScan.getMinutes()).padStart(2, '0');
+    setInitialScanTime(scanTimeStr);
     
     if (!localCache || !localCache.classes) {
       setApiError('Aplikasi masih mengunduh jadwal. Tunggu sebentar.');
@@ -1626,7 +1658,7 @@ export default function App() {
       triggerHaptic(70);
       playSuccessChime();
       setTimeout(() => {
-        processScheduleMatch(kelas.nama_kelas, kelas.id_kelas, kelas.lokasi_ruang, false);
+        processScheduleMatch(kelas.nama_kelas, kelas.id_kelas, kelas.lokasi_ruang, false, scanTimeStr);
       }, 450);
     } else if (ruangKhusus) {
       setIsScanSuccess(true);
@@ -1807,13 +1839,15 @@ export default function App() {
     const structuredId = `${dd}${mm}${yyyy}${cleanClass}${cleanMapel}${cleanGuru}`;
 
     const _dNowClient = new Date();
-    const clientTimeStr = String(_dNowClient.getHours()).padStart(2, '0') + ':' + String(_dNowClient.getMinutes()).padStart(2, '0');
+    const fallbackTime = String(_dNowClient.getHours()).padStart(2, '0') + ':' + String(_dNowClient.getMinutes()).padStart(2, '0');
+    const clientTimeStr = scanResult?.scan_time || initialScanTime || fallbackTime;
 
     // KUNCI PERMANEN: Menjamin waktu dan tanggal yang terkirim ke spreadsheet
-    // persis sama dengan saat tombol presensi ditekan, bukan saat sinkronisasi esok harinya.
+    // persis sama dengan saat QR code dipindai, bukan saat konfirmasi atau sinkronisasi nanti.
     const updatedFinalScanResult: ScanResultState = {
       ...finalScanResult,
       timestamp: clientTimeStr,
+      scan_time: clientTimeStr,
       tanggal: tanggalFormatStandard,
       hari: currentDayIndo
     };
@@ -1849,7 +1883,7 @@ export default function App() {
       
       localStorage.setItem('tapak_offline_queue', JSON.stringify(currentQueue));
       setOfflineQueue(currentQueue);
-      setScanResult({ ...finalScanResult, timestamp: timestampStr });
+      setScanResult({ ...finalScanResult, timestamp: timestampStr, scan_time: clientTimeStr });
       setModalPhase('SUCCESS_OFFLINE');
       triggerHaptic([60, 40, 80]);
       playSuccessChime();
@@ -1858,16 +1892,18 @@ export default function App() {
     if (API_URL.includes("ISI_DENGAN")) {
       setTimeout(() => {
         const simTime = clientTimeStr;
-        setScanResult({ ...finalScanResult, timestamp: simTime });
+        setScanResult({ ...finalScanResult, timestamp: simTime, scan_time: clientTimeStr });
         addToHistory({
           id: structuredId + '_' + Date.now(),
           nama_kelas: finalScanResult.nama_kelas,
+          jam_ke: finalScanResult.jam_ke,
           mapel_ke: finalScanResult.mapel_ke,
           teacherName: finalScanResult.teacherName,
           subject: finalScanResult.subject,
           waktu_mulai: finalScanResult.waktu_mulai,
           waktu_selesai: finalScanResult.waktu_selesai,
-          timestamp: simTime
+          timestamp: simTime,
+          jenis_kehadiran: 'Hadir'
         });
         setModalPhase('SUCCESS'); 
         triggerHaptic([60, 40, 80]);
@@ -1892,16 +1928,18 @@ export default function App() {
       if (resData.status === 'success') {
         triggerHaptic([60, 40, 80]);
         playSuccessChime();
-        setScanResult({ ...finalScanResult, timestamp: resData.data.waktu_absen });
+        setScanResult({ ...finalScanResult, timestamp: clientTimeStr, scan_time: clientTimeStr });
         addToHistory({
           id: structuredId + '_' + Date.now(),
           nama_kelas: finalScanResult.nama_kelas,
+          jam_ke: finalScanResult.jam_ke,
           mapel_ke: finalScanResult.mapel_ke,
           teacherName: finalScanResult.teacherName,
           subject: finalScanResult.subject,
           waktu_mulai: finalScanResult.waktu_mulai,
           waktu_selesai: finalScanResult.waktu_selesai,
-          timestamp: resData.data.waktu_absen
+          timestamp: clientTimeStr,
+          jenis_kehadiran: 'Hadir'
         });
         setModalPhase('SUCCESS');
       } else {
@@ -1927,6 +1965,7 @@ export default function App() {
     setIsModalOpen(false); 
     setModalPhase('CLOSED'); 
     setScannedToken('');
+    setInitialScanTime('');
     setIsScanSuccess(false);
     setKegiatan(''); 
     setKegiatanError(false); 
@@ -3809,9 +3848,48 @@ export default function App() {
                   {/* Antrean Luring */}
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                        <CloudSyncIcon className="w-4 h-4 text-amber-500" /> Antrean Luring ({offlineQueue.length})
-                      </h3>
+                      <div className="flex items-center gap-1.5 relative">
+                        <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                          <CloudSyncIcon className="w-4 h-4 text-amber-500" /> Antrean Luring ({offlineQueue.length})
+                        </h3>
+                        {/* Tombol Info Tooltip */}
+                        <div className="relative inline-flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => setShowOfflineInfoTooltip(prev => !prev)}
+                            onMouseEnter={() => setShowOfflineInfoTooltip(true)}
+                            onMouseLeave={() => setShowOfflineInfoTooltip(false)}
+                            className="p-0.5 rounded-full text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 transition-colors cursor-pointer"
+                            title="Penjelasan Sinkronisasi Otomatis"
+                            aria-label="Info sinkronisasi otomatis"
+                          >
+                            <InfoIcon className="w-3.5 h-3.5 text-amber-400/90" />
+                          </button>
+                          
+                          {/* Tooltip Popover Floating */}
+                          <AnimatePresence>
+                            {showOfflineInfoTooltip && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 4, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                                transition={{ duration: 0.15 }}
+                                className="absolute left-0 bottom-full mb-2 w-64 p-2.5 rounded-xl bg-slate-950 border border-amber-500/40 shadow-[0_10px_25px_rgba(0,0,0,0.8),0_0_15px_rgba(245,158,11,0.2)] text-[10.5px] text-amber-200 z-50 pointer-events-none"
+                              >
+                                <div className="font-semibold text-amber-100 flex items-center gap-1 mb-1">
+                                  <InfoIcon className="w-3.5 h-3.5 text-amber-400" />
+                                  Sinkronisasi Otomatis
+                                </div>
+                                <p className="leading-relaxed text-slate-300">
+                                  Data presensi tersimpan aman di memori perangkat dan akan terkirim otomatis ke server segera setelah koneksi internet kembali stabil tanpa perlu scan ulang.
+                                </p>
+                                <div className="absolute top-full left-4 -mt-1 w-2 h-2 bg-slate-950 border-r border-b border-amber-500/40 transform rotate-45" />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </div>
+
                       {isOnline && offlineQueue.length > 0 && !isBackgroundSyncing && (
                         <button
                           onClick={() => autoSyncOfflineData()}
@@ -3820,6 +3898,23 @@ export default function App() {
                           Sinkronkan Sekarang
                         </button>
                       )}
+                    </div>
+
+                    {/* Info Card Penjelas Kepercayaan Pengguna */}
+                    <div className="mb-3 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 shadow-sm">
+                      <div className="p-1 rounded-lg bg-amber-500/20 text-amber-400 flex-shrink-0 mt-0.5">
+                        <InfoIcon className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold text-amber-200 leading-snug">
+                          {offlineQueue.length > 0 
+                            ? 'Data presensi tersimpan aman di perangkat' 
+                            : 'Penyimpanan luring aktif & otomatis'}
+                        </p>
+                        <p className="text-[10px] text-amber-300/80 leading-relaxed mt-0.5">
+                          Data akan <span className="text-amber-100 font-semibold underline decoration-amber-400/50">terkirim otomatis</span> segera setelah koneksi internet kembali stabil, sehingga Anda tidak perlu khawatir atau memindai ulang.
+                        </p>
+                      </div>
                     </div>
 
                     {/* Real-Time Sync Progress Indicator (Batch Processing Feedback) */}
@@ -3875,12 +3970,12 @@ export default function App() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 mb-1">
                                     <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wide ${
-                                      isLeave ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                      isLeave ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                     }`}>
-                                      {isLeave ? `Izin (${leaveType})` : 'Hadir KBM'}
+                                      {isLeave ? (leaveType === 'Hadir' ? 'Hadir KBM' : leaveType) : 'Hadir KBM'}
                                     </span>
-                                    {jamKe && (
-                                      <span className="text-[9px] font-bold text-amber-200/90 bg-slate-800/90 px-1.5 py-0.5 rounded border border-slate-700/70">
+                                    {jamKe && jamKe !== '-' && (
+                                      <span className="text-[9px] font-bold text-amber-200/90 bg-slate-800/90 px-1.5 py-0.5 rounded border border-amber-500/20">
                                         Jam Ke {jamKe}
                                       </span>
                                     )}
@@ -3917,23 +4012,41 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {sentHistory.map((item, idx) => (
-                          <div key={idx} className="flex flex-col gap-1.5 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl shadow-sm">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-xs font-bold text-emerald-100">{item.teacherName}</p>
-                                <p className="text-[11px] text-emerald-200/90 font-medium">{item.subject}</p>
+                        {sentHistory.map((item, idx) => {
+                          const isLeave = item.jenis_kehadiran && item.jenis_kehadiran !== 'Hadir';
+                          const statusLabel = isLeave ? item.jenis_kehadiran : 'Hadir KBM';
+
+                          return (
+                            <div key={idx} className="flex flex-col gap-1.5 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl shadow-sm">
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 mb-1">
+                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                      {statusLabel}
+                                    </span>
+                                    {item.jam_ke && item.jam_ke !== '-' && (
+                                      <span className="text-[9px] font-bold text-emerald-200/90 bg-slate-800/90 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                        Jam Ke {item.jam_ke}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs font-bold text-emerald-100 truncate">{item.teacherName}</p>
+                                  <p className="text-[11px] text-emerald-200/90 font-medium truncate">{item.subject}</p>
+                                </div>
+                                <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/30 flex items-center gap-1 flex-shrink-0 mt-0.5">
+                                  <CheckCircleIcon className="w-3 h-3"/> {item.timestamp}
+                                </span>
                               </div>
-                              <span className="text-[9px] font-mono bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md border border-emerald-500/30 flex items-center gap-1 flex-shrink-0 mt-0.5">
-                                <CheckCircleIcon className="w-3 h-3"/> {item.timestamp}
-                              </span>
+                              <div className="flex items-center justify-between text-[10px] text-emerald-200/70 border-t border-emerald-500/20 pt-2 mt-0.5">
+                                <span className="font-semibold text-emerald-300 truncate max-w-[140px]">{item.nama_kelas}</span>
+                                <span className="flex items-center gap-1 font-mono bg-emerald-900/40 px-1.5 py-0.5 rounded flex-shrink-0">
+                                  <ClockIcon className="w-2.5 h-2.5"/> 
+                                  {item.waktu_mulai && item.waktu_selesai && item.waktu_mulai !== '-' ? `${item.waktu_mulai} - ${item.waktu_selesai} WIB` : item.timestamp}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[10px] text-emerald-200/70 border-t border-emerald-500/20 pt-2 mt-0.5">
-                              <span className="font-semibold text-emerald-300">{item.nama_kelas}</span>
-                              <span className="flex items-center gap-1 font-mono bg-emerald-900/40 px-1.5 py-0.5 rounded"><ClockIcon className="w-2.5 h-2.5"/> {item.waktu_mulai} - {item.waktu_selesai} WIB</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

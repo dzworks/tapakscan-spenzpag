@@ -563,7 +563,9 @@ export default function App() {
   const [selectedCameraId, setSelectedCameraId] = useState('');
   const [isCameraStarting, setIsCameraStarting] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const activeCameraIdRef = useRef<string>('');
 
   const [kegiatan, setKegiatan] = useState('');
   const [kegiatanError, setKegiatanError] = useState(false);
@@ -1801,6 +1803,27 @@ export default function App() {
     }
   };
 
+  const findBestRearCamera = (devices: CameraDevice[]): CameraDevice => {
+    if (devices.length === 1) return devices[0];
+    
+    // 1. Cari berdasarkan kata kunci belakang/back pada label perangkat keras
+    const rearKeywords = ['back', 'belakang', 'rear', 'environment', 'camera2 0', 'facing back', '0, facing back'];
+    for (const keyword of rearKeywords) {
+      const matched = devices.find(d => (d.label || '').toLowerCase().includes(keyword));
+      if (matched) return matched;
+    }
+
+    // 2. Jika tidak ada kata 'back', cari perangkat yang bukan kamera depan (bukan front/selfie/user)
+    const nonFront = devices.find(d => {
+      const label = (d.label || '').toLowerCase();
+      return !label.includes('front') && !label.includes('depan') && !label.includes('user') && !label.includes('selfie') && !label.includes('facing front');
+    });
+    if (nonFront) return nonFront;
+
+    // 3. Fallback cerdas: pada smartphone jika indeks 0 adalah selfie, indeks terakhir adalah kamera belakang
+    return devices[devices.length - 1];
+  };
+
   const handleStartCamera = () => {
     if (syncStatus === 'syncing' || syncStatus === 'error' || isCameraStarting) return;
     
@@ -1809,33 +1832,72 @@ export default function App() {
     setModalPhase('SCANNING');
     setIsCameraStarting(true); 
     setIsCameraReady(false);
+    setIsSwitchingCamera(false);
     setApiError(null);
     setIsScanSuccess(false);
-
-    // Deteksi kamera di latar belakang untuk menu tombol ganti kamera tanpa menghentikan pemindai
-    Html5Qrcode.getCameras().then(devices => {
-      if (devices && devices.length > 0) {
-        setCameras(devices);
-      }
-    }).catch(() => {
-      // Akses kamera ditangani langsung saat scanner.start()
-    });
   };
 
-  const handleSwitchCamera = () => {
-    if (cameras.length > 1) {
-      setIsCameraReady(false);
-      let currentIndex = cameras.findIndex(cam => cam.id === selectedCameraId);
-      if (currentIndex === -1) {
-        // Jika sebelumnya menggunakan default environment, cari kamera non-belakang untuk switch
-        currentIndex = cameras.findIndex(c => {
-          const l = c.label.toLowerCase();
-          return l.includes('back') || l.includes('belakang') || l.includes('environment');
-        });
-        if (currentIndex === -1) currentIndex = 0;
-      }
+  const handleSwitchCamera = async () => {
+    if (cameras.length <= 1 || isSwitchingCamera) return;
+    
+    const scanner = html5QrCodeRef.current;
+    if (!scanner) return;
+
+    setIsSwitchingCamera(true);
+    setIsCameraReady(false);
+
+    try {
+      const currentId = activeCameraIdRef.current || selectedCameraId;
+      let currentIndex = cameras.findIndex(c => c.id === currentId);
+      if (currentIndex === -1) currentIndex = 0;
+      
       const nextIndex = (currentIndex + 1) % cameras.length;
-      setSelectedCameraId(cameras[nextIndex].id);
+      const nextCam = cameras[nextIndex];
+
+      // 1. Hentikan kamera lama secara bersih dan tunggu hingga selesai
+      if (scanner.isScanning) {
+        await scanner.stop();
+      }
+
+      // 2. Jeda hardware singkat agar sistem peramban/OS melepaskan stream video secara sempurna
+      await new Promise(r => setTimeout(r, 120));
+
+      // 3. Nyalakan kamera berikutnya dengan ID fisiknya
+      activeCameraIdRef.current = nextCam.id;
+      setSelectedCameraId(nextCam.id);
+
+      const config = { fps: 20 };
+      await scanner.start(
+        nextCam.id,
+        config,
+        (decodedText) => {
+          if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
+          handleQrMatch(decodedText);
+        },
+        () => {}
+      );
+
+      setIsCameraReady(true);
+    } catch (err) {
+      console.warn("Gagal beralih kamera:", err);
+      // Pulihkan kamera sebelumnya jika terjadi gangguan
+      try {
+        const currentId = activeCameraIdRef.current;
+        if (currentId && scanner && !scanner.isScanning) {
+          await scanner.start(
+            currentId,
+            { fps: 20 },
+            (decodedText) => {
+              if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
+              handleQrMatch(decodedText);
+            },
+            () => {}
+          );
+          setIsCameraReady(true);
+        }
+      } catch {}
+    } finally {
+      setIsSwitchingCamera(false);
     }
   };
 
@@ -1854,11 +1916,30 @@ export default function App() {
 
       const startScanner = async () => {
         try {
-          // Utamakan kamera belakang secara langsung atau kamera spesifik jika dipilih
-          const cameraTarget = selectedCameraId ? selectedCameraId : { facingMode: "environment" };
+          // Ambil daftar perangkat kamera fisik terlebih dahulu untuk mengunci ID fisik kamera belakang
+          let devices: CameraDevice[] = [];
+          try {
+            devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length > 0) {
+              setCameras(devices);
+            }
+          } catch (err) {
+            console.warn("Camera enumeration pre-check:", err);
+          }
+
+          let targetCamera: string | MediaTrackConstraints;
+          if (devices && devices.length > 0) {
+            const bestRearCam = findBestRearCamera(devices);
+            targetCamera = bestRearCam.id;
+            activeCameraIdRef.current = bestRearCam.id;
+            setSelectedCameraId(bestRearCam.id);
+          } else {
+            // Jika belum ada izin atau device belum terbaca, paksa constraint environment
+            targetCamera = { facingMode: "environment" };
+          }
           
           await scanner!.start(
-            cameraTarget, 
+            targetCamera, 
             config,
             (decodedText) => { 
               if (scanner && scanner.isScanning) scanner.stop().catch(() => {}); 
@@ -1870,31 +1951,19 @@ export default function App() {
           if (!isCancelled) {
             setIsCameraReady(true);
             setIsCameraStarting(false);
+
+            // Jika daftar kamera sebelumnya belum lengkap karena izin baru diberikan di layar,
+            // perbarui daftar kamera agar tombol pindah kamera terisi lengkap
+            if (devices.length <= 1) {
+              try {
+                const freshDevices = await Html5Qrcode.getCameras();
+                if (freshDevices && freshDevices.length > 0) {
+                  setCameras(freshDevices);
+                }
+              } catch {}
+            }
           }
         } catch (firstErr) {
-          // Fallback halus: jika facingMode environment tidak didukung (misal di PC/laptop)
-          if (!selectedCameraId && !isCancelled) {
-            try {
-              const devices = await Html5Qrcode.getCameras();
-              if (devices && devices.length > 0 && !isCancelled) {
-                setCameras(devices);
-                await scanner!.start(
-                  devices[0].id,
-                  config,
-                  (decodedText) => {
-                    if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
-                    handleQrMatch(decodedText);
-                  },
-                  () => {}
-                );
-                setSelectedCameraId(devices[0].id);
-                setIsCameraReady(true);
-                setIsCameraStarting(false);
-                return;
-              }
-            } catch {}
-          }
-
           if (!isCancelled) {
             console.warn("Camera init failed:", firstErr); 
             setIsCameraStarting(false);
@@ -1914,7 +1983,7 @@ export default function App() {
         scanner.stop().catch(() => {}); 
       }
     };
-  }, [isModalOpen, modalPhase, selectedCameraId]);
+  }, [isModalOpen, modalPhase]);
 
   const submitData = async () => {
     setModalPhase('LOADING');
@@ -2077,6 +2146,8 @@ export default function App() {
     }
     setIsCameraStarting(false);
     setIsCameraReady(false);
+    setIsSwitchingCamera(false);
+    activeCameraIdRef.current = '';
     setIsModalOpen(false); 
     setModalPhase('CLOSED'); 
     setScannedToken('');
@@ -2803,7 +2874,7 @@ export default function App() {
 
               {/* Seamless Camera Stream Radar Overlay to eliminate flicker (Nol Beban GPU) */}
               <AnimatePresence>
-                {!isCameraReady && (
+                {(!isCameraReady || isSwitchingCamera) && (
                   <motion.div
                     key="camera-warming-overlay"
                     initial={{ opacity: 1 }}
@@ -2819,10 +2890,10 @@ export default function App() {
                       </div>
                     </div>
                     <span className="text-xs font-bold text-cyan-200 tracking-wider uppercase">
-                      Menghubungkan Kamera...
+                      {isSwitchingCamera ? "Beralih Kamera..." : "Menghubungkan Kamera Belakang..."}
                     </span>
                     <span className="text-[11px] text-slate-400 mt-1">
-                      Menyiapkan sensor pemindai presensi
+                      {isSwitchingCamera ? "Menyiapkan sensor lensa pilihan" : "Mengunci sensor utama pemindai presensi"}
                     </span>
                   </motion.div>
                 )}
@@ -2929,11 +3000,11 @@ export default function App() {
                       <motion.button 
                         whileTap={{ scale: 0.93 }}
                         onClick={handleSwitchCamera} 
-                        disabled={cameras.length <= 1} 
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 shadow-md ${cameras.length <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-500 hover:text-blue-400 text-slate-300 transition-all cursor-pointer'}`}
+                        disabled={cameras.length <= 1 || isSwitchingCamera} 
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700 shadow-md ${cameras.length <= 1 || isSwitchingCamera ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-500 hover:text-blue-400 text-slate-300 transition-all cursor-pointer'}`}
                       >
-                        <SwitchCameraIcon className="w-5 h-5" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider">Kamera</span>
+                        <SwitchCameraIcon className={`w-5 h-5 ${isSwitchingCamera ? 'animate-spin text-cyan-400' : ''}`} />
+                        <span className="text-[10px] font-bold uppercase tracking-wider">{isSwitchingCamera ? "Beralih..." : "Kamera"}</span>
                       </motion.button>
                     </div>
                   </div>

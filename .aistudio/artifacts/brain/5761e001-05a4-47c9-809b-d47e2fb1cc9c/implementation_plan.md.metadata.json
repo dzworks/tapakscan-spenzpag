@@ -1,6 +1,6 @@
 {
-  "summary":  "Rencana penyesuaian tampilan Jam Ke:\n1. Memperbesar ukuran teks Jam Ke secara proporsional (text-sm hingga text-base) agar terlihat jelas dan terbaca dalam satu baris penuh.\n2. Membentangkan lebar kartu kapsul Jam Ke persis selebar panjang jam digital (panjang selaras sekitar 270px - 320px).\n3. Mempertahankan indikator status dinamis (KBM Aktif bertinta Cyan, Istirahat bertinta Amber, dan Di Luar Jam KBM bertinta Slate).\n4. Menjaga efisiensi 100% nol beban GPU ponsel.",
-  "updatedAt":  "2026-10-29T06:08:45.961103386Z",
+  "summary":  "Rencana perbaikan pemilihan kamera belakang dan alur pindah kamera:\n1. Memaksa penguncian ID fisik kamera belakang utama secara otomatis melalui deteksi label hardware (back/rear/belakang) dari daftar perangkat peramban, dengan fallback cerdas ke kamera yang tersedia.\n2. Memperbaiki fungsi pindah kamera agar menghentikan sensor kamera lama secara asinkron (await stop) hingga perangkat keras benar-benar dilepas sebelum menyalakan kamera berikutnya, mencegah galat hardware lock (NotReadableError).\n3. Menjaga alur pembukaan scanner tetap instan dengan radar animasi mulus dan tanpa kedipan dashboard.",
+  "updatedAt":  "2026-10-29T06:19:02.425871452Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

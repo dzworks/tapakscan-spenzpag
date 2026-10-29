@@ -1,6 +1,6 @@
 // TAPAK Service Worker - SMP Negeri 1 Pagaden
 // Versi Cache-First penuh untuk mode luring total sejak instalasi pertama
-const CACHE_NAME = 'tapak-pwa-v2.6.5-rev2';
+const CACHE_NAME = 'tapak-pwa-v2.6.8';
 const CORE_PRECACHE_ASSETS = [
   '/',
   '/index.html',

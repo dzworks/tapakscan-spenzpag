@@ -1804,45 +1804,36 @@ export default function App() {
   const handleStartCamera = () => {
     if (syncStatus === 'syncing' || syncStatus === 'error' || isCameraStarting) return;
     
+    // Buka modal secara instan (0ms) tanpa jeda layar hitam
+    setIsModalOpen(true);
+    setModalPhase('SCANNING');
     setIsCameraStarting(true); 
     setIsCameraReady(false);
     setApiError(null);
     setIsScanSuccess(false);
 
+    // Deteksi kamera di latar belakang untuk menu tombol ganti kamera tanpa menghentikan pemindai
     Html5Qrcode.getCameras().then(devices => {
       if (devices && devices.length > 0) {
         setCameras(devices);
-        let defaultCam = devices[0].id;
-        for (let i = 0; i < devices.length; i++) {
-          const label = devices[i].label.toLowerCase();
-          if (label.includes("back") || label.includes("belakang") || label.includes("environment")) {
-            defaultCam = devices[i].id;
-            break;
-          }
-        }
-        setSelectedCameraId(defaultCam);
-        setIsModalOpen(true);
-        setModalPhase('SCANNING'); 
-      } else {
-        setIsCameraStarting(false); 
-        setIsCameraReady(false);
-        setIsModalOpen(true);
-        setApiError("Kamera tidak terdeteksi di perangkat Anda.");
-        setModalPhase('ERROR');
       }
     }).catch(() => {
-      setIsCameraStarting(false);
-      setIsCameraReady(false);
-      setIsModalOpen(true);
-      setApiError("Izin kamera ditolak. Mohon izinkan akses kamera pada pop-up browser.");
-      setModalPhase('ERROR');
+      // Akses kamera ditangani langsung saat scanner.start()
     });
   };
 
   const handleSwitchCamera = () => {
     if (cameras.length > 1) {
       setIsCameraReady(false);
-      const currentIndex = cameras.findIndex(cam => cam.id === selectedCameraId);
+      let currentIndex = cameras.findIndex(cam => cam.id === selectedCameraId);
+      if (currentIndex === -1) {
+        // Jika sebelumnya menggunakan default environment, cari kamera non-belakang untuk switch
+        currentIndex = cameras.findIndex(c => {
+          const l = c.label.toLowerCase();
+          return l.includes('back') || l.includes('belakang') || l.includes('environment');
+        });
+        if (currentIndex === -1) currentIndex = 0;
+      }
       const nextIndex = (currentIndex + 1) % cameras.length;
       setSelectedCameraId(cameras[nextIndex].id);
     }
@@ -1850,36 +1841,75 @@ export default function App() {
 
   useEffect(() => {
     let scanner: Html5Qrcode | null = null;
-    if (isModalOpen && modalPhase === 'SCANNING' && selectedCameraId) {
+    let isCancelled = false;
+
+    if (isModalOpen && modalPhase === 'SCANNING') {
       setIsCameraReady(false);
       scanner = new Html5Qrcode("reader");
       html5QrCodeRef.current = scanner;
       
-      // Konfigurasi pemindaian seluruh layar (100% full-viewport scanning) tanpa batasan qrbox
-      // Memungkinkan pembacaan seketika di mana pun QR code tampak di layar pada 20 FPS responsif
       const config = { 
         fps: 20 
       };
 
-      scanner.start(
-        selectedCameraId, config,
-        (decodedText) => { 
-          if (scanner && scanner.isScanning) scanner.stop().catch(() => {}); 
-          handleQrMatch(decodedText); 
-        },
-        () => {}
-      ).then(() => {
-        setIsCameraReady(true);
-        setIsCameraStarting(false);
-      }).catch(err => { 
-        console.warn("Camera init failed:", err); 
-        setIsCameraStarting(false);
-        setIsCameraReady(false);
-        setApiError("Gagal memulai video kamera. Silakan muat ulang halaman.");
-        setModalPhase('ERROR');
-      });
+      const startScanner = async () => {
+        try {
+          // Utamakan kamera belakang secara langsung atau kamera spesifik jika dipilih
+          const cameraTarget = selectedCameraId ? selectedCameraId : { facingMode: "environment" };
+          
+          await scanner!.start(
+            cameraTarget, 
+            config,
+            (decodedText) => { 
+              if (scanner && scanner.isScanning) scanner.stop().catch(() => {}); 
+              handleQrMatch(decodedText); 
+            },
+            () => {}
+          );
+
+          if (!isCancelled) {
+            setIsCameraReady(true);
+            setIsCameraStarting(false);
+          }
+        } catch (firstErr) {
+          // Fallback halus: jika facingMode environment tidak didukung (misal di PC/laptop)
+          if (!selectedCameraId && !isCancelled) {
+            try {
+              const devices = await Html5Qrcode.getCameras();
+              if (devices && devices.length > 0 && !isCancelled) {
+                setCameras(devices);
+                await scanner!.start(
+                  devices[0].id,
+                  config,
+                  (decodedText) => {
+                    if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
+                    handleQrMatch(decodedText);
+                  },
+                  () => {}
+                );
+                setSelectedCameraId(devices[0].id);
+                setIsCameraReady(true);
+                setIsCameraStarting(false);
+                return;
+              }
+            } catch {}
+          }
+
+          if (!isCancelled) {
+            console.warn("Camera init failed:", firstErr); 
+            setIsCameraStarting(false);
+            setIsCameraReady(false);
+            setApiError("Gagal memulai video kamera. Mohon izinkan akses kamera pada peramban.");
+            setModalPhase('ERROR');
+          }
+        }
+      };
+
+      startScanner();
     }
+
     return () => { 
+      isCancelled = true;
       if (scanner && scanner.isScanning) {
         scanner.stop().catch(() => {}); 
       }
@@ -2531,38 +2561,40 @@ export default function App() {
               </div>
             )}
 
-            {/* Main Clock Display (Terpusat & Angka Ekstra Besar Menonjol - Zero Blur GPU-Free Gradient) */}
-            <div className="flex flex-col items-center justify-center text-center my-0.5 select-none">
-              <span className="text-5xl sm:text-[3.6rem] font-mono font-black tracking-wider tabular-nums leading-none text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-sky-200 to-blue-400 select-none">
+            {/* Main Clock Display & Jam Ke (Terkoordinasi dengan Panjang & Lebar yang Selaras) */}
+            <div className="flex flex-col items-center justify-center text-center my-1 select-none w-full max-w-[280px] sm:max-w-[340px]">
+              <span className="w-full text-5xl sm:text-[3.6rem] font-mono font-black tracking-wider tabular-nums leading-none text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-sky-200 to-blue-400 select-none text-center">
                 {time || '00:00:00'}
               </span>
 
-              {/* Indikator Sesi Jam Ke Berapa Sedang Berlangsung Sesuai Tabel Master */}
-              <div className="mt-2.5 mb-1 flex items-center justify-center">
+              {/* Indikator Sesi Jam Ke Berapa Sedang Berlangsung - Membentang Selebar Jam Digital dengan Huruf Proporsional */}
+              <div className="mt-3 mb-1 w-full flex items-center justify-center">
                 {currentSessionInfo.type === 'ACTIVE' ? (
-                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 backdrop-blur-sm">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="text-xs font-bold tracking-tight">
+                  <div className="w-full max-w-[280px] sm:max-w-[340px] flex items-center justify-center gap-2.5 py-2 px-4 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-100 shadow-sm">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse flex-shrink-0" />
+                    <span className="text-sm sm:text-base font-bold tracking-tight truncate">
                       {currentSessionInfo.label}
                     </span>
                   </div>
                 ) : currentSessionInfo.type === 'BREAK' ? (
-                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-200 backdrop-blur-sm">
-                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                    <span className="text-xs font-bold tracking-tight text-amber-100">
+                  <div className="w-full max-w-[280px] sm:max-w-[340px] flex items-center justify-center gap-2.5 py-2 px-4 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-100 shadow-sm">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                    <span className="text-sm sm:text-base font-bold tracking-tight truncate">
                       {currentSessionInfo.label}
                     </span>
                   </div>
                 ) : (
-                  <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-slate-300 text-xs font-medium tracking-tight">
-                    <ClockIcon className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{currentSessionInfo.label}</span>
+                  <div className="w-full max-w-[280px] sm:max-w-[340px] flex items-center justify-center gap-2.5 py-2 px-4 rounded-full bg-slate-800/80 border border-slate-700/60 text-slate-300 shadow-sm">
+                    <ClockIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                    <span className="text-sm sm:text-base font-semibold tracking-tight truncate">
+                      {currentSessionInfo.label}
+                    </span>
                   </div>
                 )}
               </div>
             </div>
             
-            <div className="flex flex-col items-center mt-0.5 w-full max-w-[260px]">
+            <div className="flex flex-col items-center mt-1 w-full max-w-[280px] sm:max-w-[340px]">
               <span className="text-xs font-medium text-slate-300 mb-1">{dateStr}</span>
               
               <div className="flex flex-col items-center transition-colors duration-300 text-center">
@@ -2753,21 +2785,6 @@ export default function App() {
 
         </footer>
 
-        {/* Ambient Darkening Transition Overlay saat kamera sedang dipersiapkan sebelum modal muncul */}
-        <AnimatePresence>
-          {isCameraStarting && !isModalOpen && (
-            <motion.div
-              key="camera-init-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0 }}
-              className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(5, 8, 18, 0.98)' }}
-            />
-          )}
-        </AnimatePresence>
-
         {/* ----------------- FULL SCREEN CAMERA OVERLAY ----------------- */}
         <AnimatePresence>
           {isModalOpen && modalPhase === 'SCANNING' && (
@@ -2776,34 +2793,36 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0 }}
-              className="fixed inset-0 z-50 bg-black overflow-hidden flex flex-col"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-50 bg-[#060913] overflow-hidden flex flex-col"
             >
-              {/* Background Layer: Layar Kamera Penuh */}
-              <div className="absolute inset-0 z-0 overflow-hidden">
-                <div id="reader" className="w-full h-full bg-black flex items-center justify-center [&_video]:w-full [&_video]:h-full [&_video]:object-cover overflow-hidden"></div>
+              {/* Background Layer: Layar Kamera Penuh dengan Transisi Fade-In Halus */}
+              <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+                <div id="reader" className={`w-full h-full bg-black flex items-center justify-center [&_video]:w-full [&_video]:h-full [&_video]:object-cover overflow-hidden transition-opacity duration-300 ${isCameraReady ? 'opacity-100' : 'opacity-0'}`}></div>
               </div>
 
-              {/* Seamless Camera Stream Fade-In Overlay to eliminate flicker */}
+              {/* Seamless Camera Stream Radar Overlay to eliminate flicker (Nol Beban GPU) */}
               <AnimatePresence>
                 {!isCameraReady && (
                   <motion.div
                     key="camera-warming-overlay"
                     initial={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35, ease: 'easeOut' }}
-                    className="absolute inset-0 z-20 bg-[#080c17] flex flex-col items-center justify-center pointer-events-none"
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                    className="absolute inset-0 z-20 bg-[#060913] flex flex-col items-center justify-center pointer-events-none"
                   >
-                    <div className="relative flex items-center justify-center mb-3">
-                      <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl">
-                        <CameraIcon className="w-10 h-10 text-cyan-300" />
+                    <div className="relative flex items-center justify-center mb-4">
+                      {/* Radar ring berdenyut ringan murni CSS scale tanpa blur */}
+                      <div className="w-20 h-20 rounded-full border border-cyan-400/30 animate-ping absolute"></div>
+                      <div className="w-14 h-14 rounded-full border border-cyan-400/50 flex items-center justify-center bg-cyan-950/40">
+                        <CameraIcon className="w-7 h-7 text-cyan-300" />
                       </div>
                     </div>
-                    <span className="text-sm font-bold text-cyan-200 tracking-wider uppercase animate-pulse">
-                      Menyiapkan Kamera...
+                    <span className="text-xs font-bold text-cyan-200 tracking-wider uppercase">
+                      Menghubungkan Kamera...
                     </span>
                     <span className="text-[11px] text-slate-400 mt-1">
-                      Menghubungkan sensor video kelas
+                      Menyiapkan sensor pemindai presensi
                     </span>
                   </motion.div>
                 )}

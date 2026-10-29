@@ -404,12 +404,22 @@ interface HistoryItem {
 
 // Versi Aplikasi & Stempel Build Terpadu
 export const APP_VERSION = 'v2.6.5';
-export const BUILD_NUMBER = 'Build 20261028.1';
+export const BUILD_NUMBER = 'Build 20261028.2';
 
 export default function App() {
-  const [time, setTime] = useState('');
-  const [dateStr, setDateStr] = useState('');
-  const [currentDay, setCurrentDay] = useState('');
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+  });
+  const [dateStr, setDateStr] = useState(() => {
+    const now = new Date();
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    return now.toLocaleDateString('id-ID', options);
+  });
+  const [currentDay, setCurrentDay] = useState(() => {
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    return days[new Date().getDay()];
+  });
   
   // Status Proses Pembaruan Service Worker (Update Progress)
   const [appUpdateState, setAppUpdateState] = useState<'downloading' | 'completed' | null>(null);
@@ -473,6 +483,81 @@ export default function App() {
     }
     return null;
   }, [todayHolidayEvents, time]);
+
+  // Tabel Jadwal Master SMP Negeri 1 Pagaden
+  // Regular: Senin s/d Kamis (9 Jam Pelajaran + 2 Istirahat)
+  // Jumat: 5 Jam Pelajaran + 1 Istirahat
+  // Sabtu & Minggu: Libur KBM
+  const MASTER_SLOTS_REGULAR = useMemo(() => [
+    { jam_ke: '1', label: 'Jam Ke 1', start: '07:00', end: '07:40', startMins: 7 * 60, endMins: 7 * 60 + 40, isBreak: false },
+    { jam_ke: '2', label: 'Jam Ke 2', start: '07:40', end: '08:20', startMins: 7 * 60 + 40, endMins: 8 * 60 + 20, isBreak: false },
+    { jam_ke: '3', label: 'Jam Ke 3', start: '08:20', end: '09:00', startMins: 8 * 60 + 20, endMins: 9 * 60, isBreak: false },
+    { jam_ke: '4', label: 'Jam Ke 4', start: '09:00', end: '09:40', startMins: 9 * 60, endMins: 9 * 60 + 40, isBreak: false },
+    { jam_ke: '-', label: 'Istirahat 1', start: '09:40', end: '10:00', startMins: 9 * 60 + 40, endMins: 10 * 60, isBreak: true },
+    { jam_ke: '5', label: 'Jam Ke 5', start: '10:00', end: '10:40', startMins: 10 * 60, endMins: 10 * 60 + 40, isBreak: false },
+    { jam_ke: '6', label: 'Jam Ke 6', start: '10:40', end: '11:20', startMins: 10 * 60 + 40, endMins: 11 * 60 + 20, isBreak: false },
+    { jam_ke: '7', label: 'Jam Ke 7', start: '11:20', end: '12:00', startMins: 11 * 60 + 20, endMins: 12 * 60, isBreak: false },
+    { jam_ke: '-', label: 'Istirahat 2', start: '12:00', end: '12:40', startMins: 12 * 60, endMins: 12 * 60 + 40, isBreak: true },
+    { jam_ke: '8', label: 'Jam Ke 8', start: '12:40', end: '13:20', startMins: 12 * 60 + 40, endMins: 13 * 60 + 20, isBreak: false },
+    { jam_ke: '9', label: 'Jam Ke 9', start: '13:20', end: '14:00', startMins: 13 * 60 + 20, endMins: 14 * 60, isBreak: false }
+  ], []);
+
+  const MASTER_SLOTS_FRIDAY = useMemo(() => [
+    { jam_ke: '1', label: 'Jam Ke 1', start: '07:30', end: '08:00', startMins: 7 * 60 + 30, endMins: 8 * 60, isBreak: false },
+    { jam_ke: '2', label: 'Jam Ke 2', start: '08:00', end: '08:30', startMins: 8 * 60, endMins: 8 * 60 + 30, isBreak: false },
+    { jam_ke: '3', label: 'Jam Ke 3', start: '08:30', end: '09:00', startMins: 8 * 60 + 30, endMins: 9 * 60, isBreak: false },
+    { jam_ke: '-', label: 'Istirahat', start: '09:00', end: '09:45', startMins: 9 * 60, endMins: 9 * 60 + 45, isBreak: true },
+    { jam_ke: '4', label: 'Jam Ke 4', start: '09:45', end: '10:15', startMins: 9 * 60 + 45, endMins: 10 * 60 + 15, isBreak: false },
+    { jam_ke: '5', label: 'Jam Ke 5', start: '10:15', end: '10:45', startMins: 10 * 60 + 15, endMins: 10 * 60 + 45, isBreak: false }
+  ], []);
+
+  // Deteksi sesi KBM aktif hari ini persis sesuai tabel master SMP Negeri 1 Pagaden
+  const currentSessionInfo = useMemo<{
+    type: 'ACTIVE' | 'BREAK' | 'OFF_HOURS';
+    label: string;
+  }>(() => {
+    if (currentActiveEvent) {
+      return {
+        type: 'OFF_HOURS',
+        label: currentActiveEvent.keterangan ? currentActiveEvent.keterangan : 'KBM Non-Efektif'
+      };
+    }
+
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Minggu, 5 = Jumat, 6 = Sabtu
+
+    // Hari Sabtu dan Minggu adalah libur KBM
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return {
+        type: 'OFF_HOURS',
+        label: 'Di Luar Jam KBM'
+      };
+    }
+
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const activeTable = dayOfWeek === 5 ? MASTER_SLOTS_FRIDAY : MASTER_SLOTS_REGULAR;
+
+    // Cari slot yang cocok
+    const matchedSlot = activeTable.find(slot => currentMins >= slot.startMins && currentMins < slot.endMins);
+
+    if (matchedSlot) {
+      if (matchedSlot.isBreak) {
+        return {
+          type: 'BREAK',
+          label: `${matchedSlot.label} (${matchedSlot.start} - ${matchedSlot.end})`
+        };
+      }
+      return {
+        type: 'ACTIVE',
+        label: `Jam Ke ${matchedSlot.jam_ke} (${matchedSlot.start} - ${matchedSlot.end})`
+      };
+    }
+
+    return {
+      type: 'OFF_HOURS',
+      label: 'Di Luar Jam KBM'
+    };
+  }, [currentActiveEvent, MASTER_SLOTS_FRIDAY, MASTER_SLOTS_REGULAR, time]);
   
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState('');
@@ -894,7 +979,7 @@ export default function App() {
       const hours = String(now.getHours()).padStart(2, '0');
       const minutes = String(now.getMinutes()).padStart(2, '0');
       const seconds = String(now.getSeconds()).padStart(2, '0');
-      setTime(`${hours}:${minutes}:${seconds} WIB`);
+      setTime(`${hours}:${minutes}:${seconds}`);
 
       const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
       setDateStr(now.toLocaleDateString('id-ID', options));
@@ -2446,13 +2531,39 @@ export default function App() {
               </div>
             )}
 
-            {/* Main Clock Display */}
-            <span className="text-[2.25rem] sm:text-[2.65rem] font-mono font-bold tracking-widest drop-shadow-md tabular-nums leading-tight" style={{ color: '#6e9fe5' }}>
-              {time || '00:00:00 WIB'}
-            </span>
+            {/* Main Clock Display (Terpusat & Angka Ekstra Besar Menonjol - Zero Blur GPU-Free Gradient) */}
+            <div className="flex flex-col items-center justify-center text-center my-0.5 select-none">
+              <span className="text-5xl sm:text-[3.6rem] font-mono font-black tracking-wider tabular-nums leading-none text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-sky-200 to-blue-400 select-none">
+                {time || '00:00:00'}
+              </span>
+
+              {/* Indikator Sesi Jam Ke Berapa Sedang Berlangsung Sesuai Tabel Master */}
+              <div className="mt-2.5 mb-1 flex items-center justify-center">
+                {currentSessionInfo.type === 'ACTIVE' ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 backdrop-blur-sm">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <span className="text-xs font-bold tracking-tight">
+                      {currentSessionInfo.label}
+                    </span>
+                  </div>
+                ) : currentSessionInfo.type === 'BREAK' ? (
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-200 backdrop-blur-sm">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-xs font-bold tracking-tight text-amber-100">
+                      {currentSessionInfo.label}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-slate-300 text-xs font-medium tracking-tight">
+                    <ClockIcon className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{currentSessionInfo.label}</span>
+                  </div>
+                )}
+              </div>
+            </div>
             
-            <div className="flex flex-col items-center mt-1 w-full max-w-[220px]">
-              <span className="text-xs font-medium text-slate-300 mb-2">{dateStr}</span>
+            <div className="flex flex-col items-center mt-0.5 w-full max-w-[260px]">
+              <span className="text-xs font-medium text-slate-300 mb-1">{dateStr}</span>
               
               <div className="flex flex-col items-center transition-colors duration-300 text-center">
                 {syncStatus === 'syncing' && (

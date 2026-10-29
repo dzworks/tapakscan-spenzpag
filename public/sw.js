@@ -1,6 +1,6 @@
 // TAPAK Service Worker - SMP Negeri 1 Pagaden
 // Versi Cache-First penuh untuk mode luring total sejak instalasi pertama
-const CACHE_NAME = 'tapak-pwa-v2.6.5';
+const CACHE_NAME = 'tapak-pwa-v2.6.5-rev2';
 const CORE_PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -19,11 +19,9 @@ const cleanupStaleCaches = async () => {
     const cacheKeys = await caches.keys();
     await Promise.all(
       cacheKeys.map(async (key) => {
-        // Hapus selektif semua cache lama yang bukan versi aktif saat ini
         if (key !== CACHE_NAME) {
           await caches.delete(key);
         } else {
-          // Bersihkan icon.svg dari cache aktif jika pernah tersimpan
           const currentCache = await caches.open(key);
           await currentCache.delete('/icon.svg');
         }
@@ -35,7 +33,6 @@ const cleanupStaleCaches = async () => {
 };
 
 self.addEventListener('install', (event) => {
-  // Bersihkan cache usang lama terlebih dahulu sebelum mengunduh shell versi baru
   event.waitUntil(
     cleanupStaleCaches().then(async () => {
       const cache = await caches.open(CACHE_NAME);
@@ -43,7 +40,7 @@ self.addEventListener('install', (event) => {
         try {
           await cache.add(asset);
         } catch {
-          // Abaikan kegagalan individual agar proses instalasi tetap mulus
+          // Abaikan kegagalan individual
         }
       }
       return self.skipWaiting();
@@ -52,7 +49,7 @@ self.addEventListener('install', (event) => {
 });
 
 const CURRENT_APP_VERSION = 'v2.6.5';
-const CURRENT_BUILD_NUMBER = 'Build 20261028.1';
+const CURRENT_BUILD_NUMBER = 'Build 20261028.2';
 
 // Mengirimkan notifikasi ke aplikasi client saat skipWaiting() dan pembersihan cache berhasil
 const notifyClientsUpdateSuccess = async () => {
@@ -96,8 +93,20 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Jangan tangani API eksternal Google Apps Script via service worker (dikelola oleh App.tsx local storage)
+  // Jangan tangani API eksternal Google Apps Script via service worker
   if (url.hostname.includes('script.google.com') || url.hostname.includes('script.googleusercontent.com')) {
+    return;
+  }
+
+  // Lewati cache untuk file development Vite (/src/, /@vite/, /@fs/, /node_modules/, dsb)
+  // agar setiap perubahan kode langsung tampil di preview seketika
+  if (
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.includes('node_modules') ||
+    url.search.includes('t=') ||
+    url.search.includes('import')
+  ) {
     return;
   }
 
@@ -117,46 +126,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. Penanganan Navigasi Halaman (HTML App Shell) - Cache-First Agresif
+  // 1. Penanganan Navigasi Halaman (HTML App Shell) - Network-First saat online, Cache Fallback saat offline
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      caches.match('/index.html').then((cachedIndex) => {
-        if (cachedIndex) {
-          // Sajikan instan dari cache luring detik itu juga!
-          // Di latar belakang (jika online), lakukan background revalidation tanpa memblokir
-          fetch(event.request)
-            .then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
-                const clone = networkResponse.clone();
-                caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone));
-              }
-            })
-            .catch(() => {});
-          return cachedIndex;
-        }
-
-        // Jika belum ada di cache sama sekali, ambil dari jaringan lalu simpan
-        return fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              const clone = networkResponse.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone));
-            }
-            return networkResponse;
-          })
-          .catch(async () => {
-            const fallback = await caches.match('/');
-            return fallback || new Response('Mode Luring TAPAK SMP Negeri 1 Pagaden siap digunakan.', {
-              headers: { 'Content-Type': 'text/html' }
-            });
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone));
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cached = await caches.match('/index.html') || await caches.match('/');
+          return cached || new Response('Mode Luring TAPAK SMP Negeri 1 Pagaden siap digunakan.', {
+            headers: { 'Content-Type': 'text/html' }
           });
-      })
+        })
     );
     return;
   }
 
-  // 2. Penanganan Aset Tampilan Statis (Skrip JS, Stylesheet CSS, Gambar, Ikon, Font)
-  // Strategi Cache-First: Kembalikan langsung dari cache jika sudah ada untuk menghindari reload lambat
+  // 2. Penanganan Aset Tampilan Statis (Gambar, Ikon, Font, Asset Bundles)
   if (
     url.origin === location.origin ||
     url.hostname.includes('fonts.googleapis.com') ||
@@ -165,10 +156,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
         if (cachedResponse) {
+          // Revalidasi di latar belakang
+          fetch(event.request).then((netRes) => {
+            if (netRes && netRes.status === 200) {
+              caches.open(CACHE_NAME).then((c) => c.put(event.request, netRes));
+            }
+          }).catch(() => {});
           return cachedResponse;
         }
 
-        // Jika aset belum tersimpan sebelumnya, unduh dan simpan ke cache
         return fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
@@ -179,9 +175,7 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           })
-          .catch(() => {
-            return cachedResponse;
-          });
+          .catch(() => cachedResponse);
       })
     );
   }
